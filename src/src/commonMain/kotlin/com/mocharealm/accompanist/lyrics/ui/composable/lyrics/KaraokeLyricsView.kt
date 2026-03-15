@@ -34,6 +34,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
@@ -308,8 +309,28 @@ fun KaraokeLyricsView(
                 key = { index, line -> "${line.start}-${line.end}-$index" }
             ) { index, line ->
                 val isCurrentFocusLine by rememberUpdatedState(index in allFocusedLineIndex)
+                val isLineRtl =
+                    when(line) {
+                        is KaraokeLine-> {
+                            remember(line.syllables) { line.syllables.any { it.content.isRtl() } }
+                        }
+                        else -> false
+                    }
+                val isLineRightAligned = when (line) {
+                    is KaraokeLine-> {
+                        remember { line.alignment == KaraokeAlignment.End }
+                    }
+                    else -> false
+                }
+                val isVisualRightAligned = remember(isLineRightAligned, isLineRtl) {
+                    if (isLineRightAligned) !isLineRtl
+                    else isLineRtl
+                }
 
-                Column(modifier = Modifier.fillMaxWidth().dynamicFadingEdge(listState, index)) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().dynamicFadingEdge(listState, index),
+                    horizontalAlignment = if (isVisualRightAligned) Alignment.End else Alignment.Start
+                ) {
                     val animDuration = 600
 
                     val previousLine = lyrics.lines.getOrNull(index - 1)
@@ -379,15 +400,6 @@ fun KaraokeLyricsView(
 
                     when (line) {
                         is KaraokeLine -> {
-                            val isLineRtl =
-                                remember(line.syllables) { line.syllables.any { it.content.isRtl() } }
-                            val isVisualRightAligned = remember(line.alignment, isLineRtl) {
-                                when (line.alignment) {
-                                    KaraokeAlignment.Start, KaraokeAlignment.Unspecified -> isLineRtl
-                                    KaraokeAlignment.End -> !isLineRtl
-                                }
-                            }
-
                             if (!line.isAccompaniment) {
                                 LyricsLineItem(
                                     isFocused = isCurrentFocusLine,
