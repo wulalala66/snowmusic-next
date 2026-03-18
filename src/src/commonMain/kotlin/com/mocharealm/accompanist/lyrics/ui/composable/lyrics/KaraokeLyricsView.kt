@@ -154,9 +154,9 @@ fun KaraokeLyricsView(
             lyrics.lines.forEachIndexed { index, line ->
                 if (!isActive) return@forEachIndexed
                 if (line is KaraokeLine) {
-                    val style = if (line.isAccompaniment) accompanimentStyle else normalStyle
+                    val style = if (line is KaraokeLine.AccompanimentKaraokeLine) accompanimentStyle else normalStyle
                     val spaceWidth =
-                        if (line.isAccompaniment) accompanimentSpaceWidth else normalSpaceWidth
+                        if (line is KaraokeLine.AccompanimentKaraokeLine) accompanimentSpaceWidth else normalSpaceWidth
 
                     val processedSyllables = if (line.alignment == KaraokeAlignment.End) {
                         line.syllables.dropLastWhile { it.content.isBlank() }
@@ -168,7 +168,7 @@ fun KaraokeLyricsView(
                         syllables = processedSyllables,
                         textMeasurer = textMeasurer,
                         style = style,
-                        isAccompanimentLine = line.isAccompaniment,
+                        isAccompanimentLine = line is KaraokeLine.AccompanimentKaraokeLine,
                         spaceWidth = spaceWidth
                     )
 
@@ -216,11 +216,11 @@ fun KaraokeLyricsView(
         val map = mutableMapOf<Int, Int>()
         val mainLinesIndices = lyrics.lines.indices.filter { index ->
             val line = lyrics.lines[index]
-            line !is KaraokeLine || !line.isAccompaniment
+            line !is KaraokeLine || line !is KaraokeLine.AccompanimentKaraokeLine
         }
         if (mainLinesIndices.isNotEmpty()) {
             lyrics.lines.forEachIndexed { index, line ->
-                if (line is KaraokeLine && line.isAccompaniment) {
+                if (line is KaraokeLine && line is KaraokeLine.AccompanimentKaraokeLine) {
                     val anchorIndex =
                         mainLinesIndices.findLast { it <= index } ?: mainLinesIndices.first()
                     map[index] = anchorIndex
@@ -241,13 +241,13 @@ fun KaraokeLyricsView(
                 if (cluster != null) {
                     val firstMainInCluster = cluster.find { idx ->
                         val line = lyrics.lines.getOrNull(idx)
-                        line !is KaraokeLine || !line.isAccompaniment
+                        line !is KaraokeLine || line !is KaraokeLine.AccompanimentKaraokeLine
                     }
                     firstMainInCluster ?: cluster.first()
                 } else {
                     val currentMainLine = allActiveIndices.find { index ->
                         val line = lyrics.lines.getOrNull(index)
-                        line !is KaraokeLine || !line.isAccompaniment
+                        line !is KaraokeLine || line !is KaraokeLine.AccompanimentKaraokeLine
                     }
                     currentMainLine ?: allActiveIndices.first()
                 }
@@ -257,7 +257,7 @@ fun KaraokeLyricsView(
                     var targetIndex = nextIndex
                     for (i in nextIndex downTo 0) {
                         val line = lyrics.lines.getOrNull(i)
-                        if (line !is KaraokeLine || !line.isAccompaniment) {
+                        if (line !is KaraokeLine || line !is KaraokeLine.AccompanimentKaraokeLine) {
                             targetIndex = i
                             break
                         }
@@ -304,7 +304,7 @@ fun KaraokeLyricsView(
             val result = base.toMutableSet()
             base.forEach { index ->
                 val line = lyrics.lines.getOrNull(index)
-                if (line is KaraokeLine && line.isAccompaniment) {
+                if (line is KaraokeLine && line is KaraokeLine.AccompanimentKaraokeLine) {
                     accompanimentToMainMap[index]?.let { result.add(it) }
                 }
             }
@@ -314,10 +314,10 @@ fun KaraokeLyricsView(
 
     val accompanimentVisibilityRanges = remember(lyrics.lines) {
         val map = mutableMapOf<Int, IntRange>()
-        val mainLines = lyrics.lines.filter { it !is KaraokeLine || !it.isAccompaniment }
+        val mainLines = lyrics.lines.filter { it !is KaraokeLine || it is KaraokeLine.AccompanimentKaraokeLine }
         if (mainLines.isNotEmpty()) {
             lyrics.lines.forEachIndexed { index, line ->
-                if (line is KaraokeLine && line.isAccompaniment) {
+                if (line is KaraokeLine && line is KaraokeLine.AccompanimentKaraokeLine) {
                     val entryAnchor =
                         mainLines.findLast { it.start <= line.start } ?: mainLines.firstOrNull()
                     val exitAnchor =
@@ -508,7 +508,7 @@ fun KaraokeLyricsView(
 
                             when (line) {
                                 is KaraokeLine -> {
-                                    if (!line.isAccompaniment) {
+                                    if (line !is KaraokeLine.AccompanimentKaraokeLine) {
                                         LyricsLineItem(
                                             isFocused = isCurrentFocusLine,
                                             isRightAligned = isVisualRightAligned,

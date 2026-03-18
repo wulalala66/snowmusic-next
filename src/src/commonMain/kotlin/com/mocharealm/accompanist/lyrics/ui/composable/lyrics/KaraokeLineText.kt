@@ -385,8 +385,8 @@ fun KaraokeLineText(
             val density = LocalDensity.current
             val availableWidthPx = with(density) { maxWidth.toPx() }
 
-            val textStyle = remember(line.isAccompaniment) {
-                val baseStyle = if (line.isAccompaniment) accompanimentLineTextStyle else normalLineTextStyle
+            val textStyle = remember(line is KaraokeLine.AccompanimentKaraokeLine) {
+                val baseStyle = if (line is KaraokeLine.AccompanimentKaraokeLine) accompanimentLineTextStyle else normalLineTextStyle
                 baseStyle.copy(textDirection = TextDirection.Content)
             }
 
@@ -408,7 +408,7 @@ fun KaraokeLineText(
                         syllables = processedSyllables,
                         textMeasurer = textMeasurer,
                         style = textStyle,
-                        isAccompanimentLine = line.isAccompaniment,
+                        isAccompanimentLine = line is KaraokeLine.AccompanimentKaraokeLine,
                         spaceWidth = spaceWidth
                     )
                 }
