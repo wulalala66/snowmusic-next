@@ -191,7 +191,9 @@ fun DrawScope.drawLyricsLine(
         val minY = rowLayouts.minOf { it.position.y }
         val totalHeight = rowLayouts.maxOf { it.textLayoutResult.size.height }.toFloat()
 
-        val maxPhoneticHeight = rowLayouts.mapNotNull { it.phoneticLayoutResult?.size?.height }.maxOrNull()?.toFloat() ?: 0f
+        val maxPhoneticHeight =
+            rowLayouts.mapNotNull { it.phoneticLayoutResult?.size?.height }.maxOrNull()?.toFloat()
+                ?: 0f
         val verticalPadding = (totalHeight * 0.1).dp.toPx()
         val horizontalPadding = ((maxX - minX) * 0.2).dp.toPx()
 
@@ -260,20 +262,17 @@ private fun DrawScope.drawRowText(
                     (earliestStartTime + (latestStartTime - earliestStartTime) * charRatio).toLong()
                 val awesomeProgress =
                     ((currentTimeMs - awesomeStartTime).toFloat() / awesomeDuration).coerceIn(
-                        0f,
-                        1f
+                        0f, 1f
                     )
 
                 val floatOffset = 4f * DipAndRise(
                     dip = ((0.5 * (wordAnimInfo.wordDuration - fastCharAnimationThresholdMs * numCharsInWord) / 1000)).coerceIn(
-                        0.0,
-                        0.5
+                        0.0, 0.5
                     )
                 ).transform(1.0f - awesomeProgress)
                 val scale = 1f + Swell(
                     (0.1 * (wordAnimInfo.wordDuration - fastCharAnimationThresholdMs * numCharsInWord) / 1000).coerceIn(
-                        0.0,
-                        0.1
+                        0.0, 0.1
                     )
                 ).transform(awesomeProgress)
 
@@ -283,9 +282,7 @@ private fun DrawScope.drawRowText(
 
                 val blurRadius = 10f * Bounce.transform(awesomeProgress)
                 val shadow = Shadow(
-                    color = drawColor.copy(0.4f),
-                    offset = Offset(0f, 0f),
-                    blurRadius = blurRadius
+                    color = drawColor.copy(0.4f), offset = Offset(0f, 0f), blurRadius = blurRadius
                 )
                 withTransform({ scale(scale = scale, pivot = syllableLayout.wordPivot) }) {
                     drawText(
@@ -314,18 +311,18 @@ private fun DrawScope.drawRowText(
                 val awesomeStartTime =
                     (earliestStartTime + (latestStartTime - earliestStartTime) * syllableRatio).toLong()
                 val awesomeProgress =
-                    ((currentTimeMs - awesomeStartTime).toFloat() / awesomeDuration).coerceIn(0f, 1f)
+                    ((currentTimeMs - awesomeStartTime).toFloat() / awesomeDuration).coerceIn(
+                        0f, 1f
+                    )
 
                 val floatOffset = 4f * DipAndRise(
                     dip = ((0.5 * (wordAnimInfo.wordDuration - fastCharAnimationThresholdMs * numCharsInWord) / 1000)).coerceIn(
-                        0.0,
-                        0.5
+                        0.0, 0.5
                     )
                 ).transform(1.0f - awesomeProgress)
                 val scale = 1f + Swell(
                     (0.1 * (wordAnimInfo.wordDuration - fastCharAnimationThresholdMs * numCharsInWord) / 1000).coerceIn(
-                        0.0,
-                        0.1
+                        0.0, 0.1
                     )
                 ).transform(awesomeProgress)
 
@@ -451,18 +448,81 @@ fun KaraokeLineText(
         if (isRightAligned) Alignment.End else Alignment.Start
     }
 
+    val mainLine = line as? KaraokeLine.MainKaraokeLine
+    val accompanimentLinesBeforeMain =
+        mainLine?.accompanimentLines?.filter { it.start < line.start }.orEmpty()
+    val accompanimentLinesAfterMain =
+        mainLine?.accompanimentLines?.filter { it.start >= line.start }.orEmpty()
+
+    @Composable
+    fun AccompanimentLines(isBefore: Boolean, accompanimentLines: List<KaraokeLine>) {
+        accompanimentLines.forEach { bgLine ->
+            val isAccompanimentVisible by remember(bgLine) {
+                derivedStateOf {
+                    val currentTime = currentTimeProvider()
+                    // Use a simplified visibility range for nested lines, or pass ranges down
+                    currentTime >= (bgLine.start - 600) && currentTime <= (bgLine.end + 600)
+                }
+            }
+
+            AnimatedVisibility(
+                visible = isAccompanimentVisible,
+                enter = scaleIn(
+                    tween(600), transformOrigin = TransformOrigin(
+                        if (isRightAligned) 1f else 0f, if (isBefore) 1f else 0f
+                    )
+                ) + fadeIn(tween(600)) + slideInVertically(
+                    tween(
+                        600
+                    )
+                ) + expandVertically(tween(600)),
+                exit = scaleOut(
+                    tween(600), transformOrigin = TransformOrigin(
+                        if (isRightAligned) 1f else 0f, if (isBefore) 1f else 0f
+                    )
+                ) + fadeOut(tween(600)) + slideOutVertically(
+                    tween(
+                        600
+                    )
+                ) + shrinkVertically(tween(600)),
+            ) {
+                LyricsLineItem(
+                    isFocused = true,
+                    isRightAligned = isRightAligned,
+                    onLineClicked = { },
+                    onLinePressed = { },
+                    blurRadius = { 0f },
+                    blendMode = blendMode,
+                    activeAlpha = 0.6f,
+                    inactiveAlpha = 0.2f
+                ) {
+                    KaraokeLineText(
+                        line = bgLine,
+                        currentTimeProvider = currentTimeProvider,
+                        normalLineTextStyle = normalLineTextStyle,
+                        accompanimentLineTextStyle = accompanimentLineTextStyle,
+                        phoneticTextStyle = phoneticTextStyle,
+                        activeColor = activeColor,
+                        blendMode = blendMode,
+                        showDebugRectangles = showDebugRectangles,
+                        textMeasurer = textMeasurer
+                    )
+                }
+            }
+        }
+    }
+
     Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(
-                vertical = 8.dp,
-                horizontal =
-                    if (line is KaraokeLine.AccompanimentKaraokeLine) 0.dp
-                    else 16.dp
-            ),
+        modifier = modifier.fillMaxWidth().padding(
+            vertical = 8.dp, horizontal = if (line is KaraokeLine.AccompanimentKaraokeLine) 0.dp
+            else 16.dp
+        ),
         verticalArrangement = Arrangement.spacedBy(2.dp),
         horizontalAlignment = columnHorizontalAlignment
     ) {
+        AccompanimentLines(true, accompanimentLinesBeforeMain)
+
+
         BoxWithConstraints {
             val density = LocalDensity.current
             val availableWidthPx = with(density) { maxWidth.toPx() }
@@ -519,8 +579,7 @@ fun KaraokeLineText(
             }
 
             val finalLineLayouts = remember(
-                wrappedLines, availableWidthPx, lineHeight,
-                isLineRtl, isRightAligned
+                wrappedLines, availableWidthPx, lineHeight, isLineRtl, isRightAligned
             ) {
                 calculateStaticLineLayout(
                     wrappedLines = wrappedLines,
@@ -557,65 +616,6 @@ fun KaraokeLineText(
             }
         }
 
-        if (line is KaraokeLine.MainKaraokeLine) {
-            line.accompanimentLines?.forEach { bgLine ->
-                val isAccompanimentVisible by remember(bgLine) {
-                    derivedStateOf {
-                        val currentTime = currentTimeProvider()
-                        // Use a simplified visibility range for nested lines, or pass ranges down
-                        currentTime >= (bgLine.start - 600) && currentTime <= (bgLine.end + 600)
-                    }
-                }
-
-                AnimatedVisibility(
-                    visible = isAccompanimentVisible,
-                    enter = scaleIn(
-                        tween(600),
-                        transformOrigin = TransformOrigin(
-                            if (isRightAligned) 1f else 0f, 0f
-                        )
-                    ) + fadeIn(tween(600)) + slideInVertically(
-                        tween(
-                            600
-                        )
-                    ) + expandVertically(tween(600)),
-                    exit = scaleOut(
-                        tween(600),
-                        transformOrigin = TransformOrigin(
-                            if (isRightAligned) 1f else 0f, 0f
-                        )
-                    ) + fadeOut(tween(600)) + slideOutVertically(
-                        tween(
-                            600
-                        )
-                    ) + shrinkVertically(tween(600)),
-                ) {
-                    LyricsLineItem(
-                        isFocused = true,
-                        isRightAligned = isRightAligned,
-                        onLineClicked = { },
-                        onLinePressed = { },
-                        blurRadius = { 0f },
-                        blendMode = blendMode,
-                        activeAlpha = 0.6f,
-                        inactiveAlpha = 0.2f
-                    ) {
-                        KaraokeLineText(
-                            line = bgLine,
-                            currentTimeProvider = currentTimeProvider,
-                            normalLineTextStyle = normalLineTextStyle,
-                            accompanimentLineTextStyle = accompanimentLineTextStyle,
-                            phoneticTextStyle = phoneticTextStyle,
-                            activeColor = activeColor,
-                            blendMode = blendMode,
-                            showDebugRectangles = showDebugRectangles,
-                            textMeasurer = textMeasurer
-                        )
-                    }
-                }
-            }
-        }
-
         line.translation?.let { translation ->
             Text(
                 text = translation,
@@ -638,6 +638,7 @@ fun KaraokeLineText(
                 textAlign = translationTextAlign
             )
         }
+        AccompanimentLines(false, accompanimentLinesAfterMain)
     }
 }
 

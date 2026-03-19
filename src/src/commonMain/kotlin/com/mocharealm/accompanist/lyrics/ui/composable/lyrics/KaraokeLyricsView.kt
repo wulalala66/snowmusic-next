@@ -505,7 +505,7 @@ fun KaraokeLyricsView(
 
                             when (line) {
                                 is KaraokeLine -> {
-                                    if (line !is KaraokeLine.AccompanimentKaraokeLine) {
+                                    if (line is KaraokeLine.MainKaraokeLine) {
                                         LyricsLineItem(
                                             isFocused = isCurrentFocusLine,
                                             isRightAligned = isVisualRightAligned,
@@ -525,73 +525,6 @@ fun KaraokeLyricsView(
                                                 showDebugRectangles = showDebugRectangles,
                                                 precalculatedLayouts = layoutCache[index]
                                             )
-                                        }
-                                    } else {
-                                        val visibilityRange = accompanimentVisibilityRanges[index]
-                                        val isAccompanimentVisible by remember(visibilityRange) {
-                                            derivedStateOf {
-                                                val currentTime = currentTimeMs()
-                                                if (visibilityRange != null) {
-                                                    currentTime in visibilityRange
-                                                } else {
-                                                    currentTime >= (line.start - animDuration) && currentTime <= (line.end + animDuration)
-                                                }
-                                            }
-                                        }
-
-                                        val associatedMainIndex = accompanimentToMainMap[index]
-                                        val isAboveMain = remember(associatedMainIndex, index) {
-                                            associatedMainIndex != null && index < associatedMainIndex
-                                        }
-
-                                        AnimatedVisibility(
-                                            visible = isAccompanimentVisible,
-                                            enter = scaleIn(
-                                                tween(animDuration),
-                                                transformOrigin = TransformOrigin(
-                                                    if (isVisualRightAligned) 1f else 0f, 
-                                                    if (isAboveMain) 1f else 0f
-                                                )
-                                            ) + fadeIn(tween(animDuration)) + slideInVertically(
-                                                tween(animDuration)
-                                            ) { if (isAboveMain) it else -it } + expandVertically(
-                                                tween(animDuration),
-                                                expandFrom = if (isAboveMain) Alignment.Bottom else Alignment.Top
-                                            ),
-                                            exit = scaleOut(
-                                                tween(animDuration),
-                                                transformOrigin = TransformOrigin(
-                                                    if (isVisualRightAligned) 1f else 0f,
-                                                    if (isAboveMain) 1f else 0f
-                                                )
-                                            ) + fadeOut(tween(animDuration)) + slideOutVertically(
-                                                tween(animDuration)
-                                            ) { if (isAboveMain) it else -it } + shrinkVertically(
-                                                tween(animDuration),
-                                                shrinkTowards = if (isAboveMain) Alignment.Bottom else Alignment.Top
-                                            ),
-                                        ) {
-                                            LyricsLineItem(
-                                                isFocused = isCurrentFocusLine,
-                                                isRightAligned = isVisualRightAligned,
-                                                onLineClicked = { onLineClicked(line) },
-                                                onLinePressed = { onLinePressed(line) },
-                                                blurRadius = { blurRadiusState.value },
-                                                blendMode = stableBlendMode,
-                                                activeAlpha = 0.6f,
-                                                inactiveAlpha = 0.2f
-                                            ) {
-                                                KaraokeLineText(
-                                                    line = line,
-                                                    currentTimeProvider = timeProvider,
-                                                    normalLineTextStyle = stableNormalTextStyle,
-                                                    accompanimentLineTextStyle = stableAccompanimentTextStyle,
-                                                    phoneticTextStyle = stablePhoneticTextStyle,
-                                                    activeColor = textColor,
-                                                    blendMode = stableBlendMode,
-                                                    precalculatedLayouts = layoutCache[index]
-                                                )
-                                            }
                                         }
                                     }
                                 }
