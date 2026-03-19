@@ -114,6 +114,10 @@ fun KaraokeLyricsView(
     ),
     textColor: Color = Color.White,
     breathingDotsDefaults: KaraokeBreathingDotsDefaults = KaraokeBreathingDotsDefaults(),
+    phoneticTextStyle: TextStyle = normalLineTextStyle.copy(
+        fontSize = 13.sp,
+        fontWeight = FontWeight.Normal,
+    ),
 //    TODO: pass it to dynamicFadeEdge
 //    verticalFadeBrush: Brush = Brush.verticalGradient(
 //        0f to Color.White.copy(0f),
@@ -130,6 +134,7 @@ fun KaraokeLyricsView(
     val stableNormalTextStyle = remember(normalLineTextStyle) { normalLineTextStyle }
     val stableAccompanimentTextStyle =
         remember(accompanimentLineTextStyle) { accompanimentLineTextStyle }
+    val stablePhoneticTextStyle = remember(phoneticTextStyle) { phoneticTextStyle }
     val stableOffset = remember(offset) { offset }
     val stableOffsetPx =
         remember(stableOffset) { with(density) { stableOffset.toPx().fastRoundToInt() } }
@@ -140,12 +145,13 @@ fun KaraokeLyricsView(
     val textMeasurer = rememberTextMeasurer()
     val layoutCache = remember { mutableStateMapOf<Int, List<SyllableLayout>>() }
 
-    LaunchedEffect(lyrics, stableNormalTextStyle, stableAccompanimentTextStyle) {
+    LaunchedEffect(lyrics, stableNormalTextStyle, stableAccompanimentTextStyle, stablePhoneticTextStyle) {
         layoutCache.clear()
         withContext(Dispatchers.Default) {
             val normalStyle = stableNormalTextStyle.copy(textDirection = TextDirection.Content)
             val accompanimentStyle =
                 stableAccompanimentTextStyle.copy(textDirection = TextDirection.Content)
+            val phoneticStyle = stablePhoneticTextStyle.copy(textDirection = TextDirection.Content)
 
             val normalSpaceWidth = textMeasurer.measure(" ", normalStyle).size.width.toFloat()
             val accompanimentSpaceWidth =
@@ -168,6 +174,7 @@ fun KaraokeLyricsView(
                         syllables = processedSyllables,
                         textMeasurer = textMeasurer,
                         style = style,
+                        phoneticStyle = phoneticStyle,
                         isAccompanimentLine = line is KaraokeLine.AccompanimentKaraokeLine,
                         spaceWidth = spaceWidth
                     )
@@ -184,7 +191,37 @@ fun KaraokeLyricsView(
 
     val timeProvider = remember { currentPosition }
 
-    val lineClusters = remember(lyrics.lines) {
+    val effectiveEndTimes = remember(lyrics.lines) {
+        val endTimes = IntArray(lyrics.lines.size) { lyrics.lines[it].end }
+        // 找出所有主行的索引
+        val mainLineIndices = lyrics.lines.indices.filter {
+            val line = lyrics.lines[it]
+            line !is KaraokeLine || line !is KaraokeLine.AccompanimentKaraokeLine
+        }
+
+        mainLineIndices.forEachIndexed { i, mainIdx ->
+            val nextMainIdx = mainLineIndices.getOrNull(i + 1) ?: lyrics.lines.size
+            var maxEnd = lyrics.lines[mainIdx].end
+            // 检查该主行之后到下一个主行之前的伴唱行
+            for (j in mainIdx + 1 until nextMainIdx) {
+                maxEnd = maxOf(maxEnd, lyrics.lines[j].end)
+            }
+            endTimes[mainIdx] = maxEnd
+            // 伴唱行也共享这个结束时间，确保它们作为一个整体消失
+            for (j in mainIdx + 1 until nextMainIdx) {
+                endTimes[j] = maxEnd
+            }
+        }
+        endTimes
+    }
+
+    fun getCurrentAllHighlightLineIndicesByTimeLocally(time: Int): List<Int> {
+        return lyrics.lines.indices.filter { index ->
+            time >= lyrics.lines[index].start && time < effectiveEndTimes[index]
+        }
+    }
+
+    val lineClusters = remember(lyrics.lines, effectiveEndTimes) {
         val clusters = mutableListOf<List<Int>>()
         if (lyrics.lines.isEmpty()) return@remember clusters
 
@@ -192,17 +229,18 @@ fun KaraokeLyricsView(
         var clusterEnd = -1
 
         lyrics.lines.forEachIndexed { index, line ->
+            val lineEnd = effectiveEndTimes[index]
             if (currentCluster.isEmpty()) {
                 currentCluster.add(index)
-                clusterEnd = line.end
+                clusterEnd = lineEnd
             } else {
                 if (line.start < clusterEnd) {
                     currentCluster.add(index)
-                    clusterEnd = maxOf(clusterEnd, line.end)
+                    clusterEnd = maxOf(clusterEnd, lineEnd)
                 } else {
                     clusters.add(currentCluster)
                     currentCluster = mutableListOf(index)
-                    clusterEnd = line.end
+                    clusterEnd = lineEnd
                 }
             }
         }
@@ -233,7 +271,7 @@ fun KaraokeLyricsView(
     val firstFocusedLineIndex by remember(lyrics.lines, lineClusters) {
         derivedStateOf {
             val time = currentTimeMs()
-            val allActiveIndices = lyrics.getCurrentAllHighlightLineIndicesByTime(time)
+            val allActiveIndices = getCurrentAllHighlightLineIndicesByTimeLocally(time)
 
             if (allActiveIndices.isNotEmpty()) {
                 val firstActiveIdx = allActiveIndices.first()
@@ -270,25 +308,6 @@ fun KaraokeLyricsView(
         }
     }
 
-//    val isDuoView by remember {
-//        derivedStateOf {
-//            var hasStart = false
-//            var hasEnd = false
-//            if (lyrics.lines.isEmpty()) return@derivedStateOf false
-//            for (line in lyrics.lines) {
-//                if (line is KaraokeLine) {
-//                    when (line.alignment) {
-//                        KaraokeAlignment.Start -> hasStart = true
-//                        KaraokeAlignment.End -> hasEnd = true
-//                        else -> {}
-//                    }
-//                }
-//                if (hasStart && hasEnd) break
-//            }
-//            hasStart && hasEnd
-//        }
-//    }
-
     val firstLine = lyrics.lines.firstOrNull()
 
     val haveDotsIntro by remember(firstLine) {
@@ -300,7 +319,7 @@ fun KaraokeLyricsView(
 
     val allFocusedLineIndex by remember(lyrics, accompanimentToMainMap) {
         derivedStateOf {
-            val base = lyrics.getCurrentAllHighlightLineIndicesByTime(currentTimeMs())
+            val base = getCurrentAllHighlightLineIndicesByTimeLocally(currentTimeMs())
             val result = base.toMutableSet()
             base.forEach { index ->
                 val line = lyrics.lines.getOrNull(index)
@@ -323,7 +342,7 @@ fun KaraokeLyricsView(
                     val exitAnchor =
                         mainLines.firstOrNull { it.end >= line.end } ?: mainLines.lastOrNull()
                     val visualStartTime = (entryAnchor?.start ?: line.start) - 600
-                    val visualEndTime = (exitAnchor?.end ?: line.end) + 600
+                    val visualEndTime = (exitAnchor?.end ?: line.end)
                     map[index] = visualStartTime..visualEndTime
                 }
             }
@@ -522,6 +541,7 @@ fun KaraokeLyricsView(
                                                 currentTimeProvider = timeProvider,
                                                 normalLineTextStyle = stableNormalTextStyle,
                                                 accompanimentLineTextStyle = stableAccompanimentTextStyle,
+                                                phoneticTextStyle = stablePhoneticTextStyle,
                                                 activeColor = textColor,
                                                 blendMode = stableBlendMode,
                                                 showDebugRectangles = showDebugRectangles,
@@ -579,6 +599,7 @@ fun KaraokeLyricsView(
                                                     currentTimeProvider = timeProvider,
                                                     normalLineTextStyle = stableNormalTextStyle,
                                                     accompanimentLineTextStyle = stableAccompanimentTextStyle,
+                                                    phoneticTextStyle = stablePhoneticTextStyle,
                                                     activeColor = textColor,
                                                     blendMode = stableBlendMode,
                                                     precalculatedLayouts = layoutCache[index]

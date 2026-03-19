@@ -250,7 +250,7 @@ fun MobilePlayerScreen(
                     playerViewModel.onShareRequested()
                 }
             },
-            modifier = Modifier.padding(horizontal = 12.dp)
+            modifier = Modifier.padding(horizontal = 6.dp)
         )
     }
 }

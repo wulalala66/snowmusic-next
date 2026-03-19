@@ -31,6 +31,7 @@ fun LyricsLineItem(
     activeAlpha: Float = 1f,
     inactiveAlpha: Float = 0.4f,
     blendMode: BlendMode = BlendMode.SrcOver,
+    isInteractive: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val scaleState by animateFloatAsState(
@@ -68,11 +69,15 @@ fun LyricsLineItem(
                     )
                 }
             }
-            .clip(ContinuousRoundedRectangle(8.dp))
-            .combinedClickable(
-                onClick = onLineClicked,
-                onLongClick = onLinePressed
+            .then(
+                if (isInteractive) Modifier.clip(ContinuousRoundedRectangle(8.dp))
+                    .combinedClickable(
+                        onClick = onLineClicked,
+                        onLongClick = onLinePressed
+                    )
+                else Modifier
             )
+
     ) {
         content()
     }

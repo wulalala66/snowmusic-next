@@ -27,6 +27,8 @@ data class SyllableLayout(
     val charLayouts: List<TextLayoutResult>? = null,
     val charOriginalBounds: List<Rect>? = null,
     val firstBaseline: Float = 0f,
+    val phonetic: String? = null,
+    val phoneticLayoutResult: TextLayoutResult? = null,
 )
 
 @Stable
@@ -69,6 +71,7 @@ fun measureSyllablesAndDetermineAnimation(
     syllables: List<KaraokeSyllable>,
     textMeasurer: TextMeasurer,
     style: TextStyle,
+    phoneticStyle: TextStyle,
     isAccompanimentLine: Boolean,
     spaceWidth: Float
 ): List<SyllableLayout> {
@@ -91,6 +94,9 @@ fun measureSyllablesAndDetermineAnimation(
 
         word.map { syllable ->
             val layoutResult = textMeasurer.measure(syllable.content, style)
+            val phoneticLayout = if (!syllable.phonetic.isNullOrBlank()) {
+                textMeasurer.measure(syllable.phonetic!!, phoneticStyle)
+            } else null
 
             // --- Fix: 修正尾部空格宽度丢失 ---
             var layoutWidth = layoutResult.size.width.toFloat()
@@ -102,6 +108,9 @@ fun measureSyllablesAndDetermineAnimation(
                 }
             }
             // -----------------------------
+
+            // Ensure width is at least phonetic width
+            val finalWidth = maxOf(layoutWidth, phoneticLayout?.size?.width?.toFloat() ?: 0f)
 
             // 新增：如果需要高级动画，预先测量每个字符
             val (charLayouts, charBounds) = if (useAwesomeAnimation) {
@@ -121,10 +130,12 @@ fun measureSyllablesAndDetermineAnimation(
                 textLayoutResult = layoutResult,
                 wordId = wordIndex,
                 useAwesomeAnimation = useAwesomeAnimation,
-                width = layoutWidth, // 使用修正后的宽度
+                width = finalWidth, 
                 charLayouts = charLayouts,      // 存入缓存
                 charOriginalBounds = charBounds,
-                firstBaseline = layoutResult.firstBaseline
+                firstBaseline = layoutResult.firstBaseline,
+                phonetic = syllable.phonetic,
+                phoneticLayoutResult = phoneticLayout
             )
         }
     }
@@ -267,13 +278,18 @@ fun calculateStaticLineLayout(
     isLineRightAligned: Boolean,
     canvasWidth: Float,
     lineHeight: Float,
+    phoneticHeight: Float,
     isRtl: Boolean
 ): List<List<SyllableLayout>> {
     val layoutsByWord = mutableMapOf<Int, MutableList<SyllableLayout>>()
 
+    val hasPhoneticInBlock = wrappedLines.any { wl -> wl.syllables.any { it.phoneticLayoutResult != null } }
+
     val positionedLines = wrappedLines.mapIndexed { lineIndex, wrappedLine ->
         val maxBaselineInLine = wrappedLine.syllables.maxOfOrNull { it.firstBaseline } ?: 0f
-        val rowTopY = lineIndex * lineHeight
+        
+        val rowHeight = lineHeight + if (hasPhoneticInBlock) (phoneticHeight * 0.7f) else 0f
+        val rowTopY = lineIndex * rowHeight + if (hasPhoneticInBlock) (phoneticHeight * 0.7f) else 0f
 
         // 核心逻辑：如果是右对齐，起始点 = 画布宽 - 行宽。否则为 0。
         val startX = if (isLineRightAligned) {

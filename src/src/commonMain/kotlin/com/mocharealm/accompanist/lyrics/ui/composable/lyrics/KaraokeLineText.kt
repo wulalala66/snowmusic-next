@@ -1,6 +1,16 @@
 package com.mocharealm.accompanist.lyrics.ui.composable.lyrics
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -23,6 +33,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -103,6 +114,7 @@ private fun createLineGradientBrush(
                     activeSyllableLayout.position.x + activeSyllableLayout.width * syllableProgress
                 }
             }
+
             else -> {
                 val lastFinished = lineLayout.lastOrNull { currentTimeMs >= it.syllable.end }
                 if (isRtl) {
@@ -179,15 +191,16 @@ fun DrawScope.drawLyricsLine(
         val minY = rowLayouts.minOf { it.position.y }
         val totalHeight = rowLayouts.maxOf { it.textLayoutResult.size.height }.toFloat()
 
+        val maxPhoneticHeight = rowLayouts.mapNotNull { it.phoneticLayoutResult?.size?.height }.maxOrNull()?.toFloat() ?: 0f
         val verticalPadding = (totalHeight * 0.1).dp.toPx()
         val horizontalPadding = ((maxX - minX) * 0.2).dp.toPx()
 
         drawIntoCanvas { canvas ->
             val layerBounds = Rect(
                 left = minX - horizontalPadding,
-                top = minY - verticalPadding,
+                top = minY - verticalPadding - maxPhoneticHeight - 8.dp.toPx(),
                 right = maxX + horizontalPadding,
-                bottom = minY + totalHeight + verticalPadding
+                bottom = minY + totalHeight + verticalPadding + 8.dp.toPx()
             )
             canvas.saveLayer(layerBounds, LayerPaint)
 
@@ -231,24 +244,37 @@ private fun DrawScope.drawRowText(
             val charLayouts = syllableLayout.charLayouts ?: emptyList()
             val charBounds = syllableLayout.charOriginalBounds ?: emptyList()
 
+            val numCharsInWord = wordAnimInfo.wordContent.length
+            val earliestStartTime = wordAnimInfo.wordStartTime
+            val latestStartTime = wordAnimInfo.wordEndTime - awesomeDuration
+
             syllableLayout.syllable.content.forEachIndexed { charIndex, _ ->
-                val singleCharLayoutResult = charLayouts.getOrNull(charIndex) ?: return@forEachIndexed
+                val singleCharLayoutResult =
+                    charLayouts.getOrNull(charIndex) ?: return@forEachIndexed
                 val charBox = charBounds.getOrNull(charIndex) ?: return@forEachIndexed
 
                 val absoluteCharIndex = syllableLayout.charOffsetInWord + charIndex
-                val numCharsInWord = wordAnimInfo.wordContent.length
-                val earliestStartTime = wordAnimInfo.wordStartTime
-                val latestStartTime = wordAnimInfo.wordEndTime - awesomeDuration
-
-                val charRatio = if (numCharsInWord > 1) absoluteCharIndex.toFloat() / (numCharsInWord - 1) else 0.5f
-                val awesomeStartTime = (earliestStartTime + (latestStartTime - earliestStartTime) * charRatio).toLong()
-                val awesomeProgress = ((currentTimeMs - awesomeStartTime).toFloat() / awesomeDuration).coerceIn(0f, 1f)
+                val charRatio =
+                    if (numCharsInWord > 1) absoluteCharIndex.toFloat() / (numCharsInWord - 1) else 0.5f
+                val awesomeStartTime =
+                    (earliestStartTime + (latestStartTime - earliestStartTime) * charRatio).toLong()
+                val awesomeProgress =
+                    ((currentTimeMs - awesomeStartTime).toFloat() / awesomeDuration).coerceIn(
+                        0f,
+                        1f
+                    )
 
                 val floatOffset = 4f * DipAndRise(
-                    dip = ((0.5 * (wordAnimInfo.wordDuration - fastCharAnimationThresholdMs * numCharsInWord) / 1000)).coerceIn(0.0, 0.5)
+                    dip = ((0.5 * (wordAnimInfo.wordDuration - fastCharAnimationThresholdMs * numCharsInWord) / 1000)).coerceIn(
+                        0.0,
+                        0.5
+                    )
                 ).transform(1.0f - awesomeProgress)
                 val scale = 1f + Swell(
-                    (0.1 * (wordAnimInfo.wordDuration - fastCharAnimationThresholdMs * numCharsInWord) / 1000).coerceIn(0.0, 0.1)
+                    (0.1 * (wordAnimInfo.wordDuration - fastCharAnimationThresholdMs * numCharsInWord) / 1000).coerceIn(
+                        0.0,
+                        0.1
+                    )
                 ).transform(awesomeProgress)
 
                 val centeredOffsetX = (charBox.width - singleCharLayoutResult.size.width) / 2f
@@ -268,6 +294,7 @@ private fun DrawScope.drawRowText(
                         topLeft = Offset(xPos, yPos),
                         shadow = shadow,
                     )
+
                     if (showDebugRectangles) {
                         drawRect(
                             color = Color.Red, topLeft = Offset(xPos, yPos), size = Size(
@@ -276,6 +303,42 @@ private fun DrawScope.drawRowText(
                             ), style = Stroke(1f)
                         )
                     }
+                }
+            }
+
+            syllableLayout.phoneticLayoutResult?.let { phoneticLayout ->
+                val syllableMidIndex =
+                    syllableLayout.charOffsetInWord + (syllableLayout.syllable.content.length - 1) / 2f
+                val syllableRatio =
+                    if (numCharsInWord > 1) syllableMidIndex / (numCharsInWord - 1) else 0.5f
+                val awesomeStartTime =
+                    (earliestStartTime + (latestStartTime - earliestStartTime) * syllableRatio).toLong()
+                val awesomeProgress =
+                    ((currentTimeMs - awesomeStartTime).toFloat() / awesomeDuration).coerceIn(0f, 1f)
+
+                val floatOffset = 4f * DipAndRise(
+                    dip = ((0.5 * (wordAnimInfo.wordDuration - fastCharAnimationThresholdMs * numCharsInWord) / 1000)).coerceIn(
+                        0.0,
+                        0.5
+                    )
+                ).transform(1.0f - awesomeProgress)
+                val scale = 1f + Swell(
+                    (0.1 * (wordAnimInfo.wordDuration - fastCharAnimationThresholdMs * numCharsInWord) / 1000).coerceIn(
+                        0.0,
+                        0.1
+                    )
+                ).transform(awesomeProgress)
+
+                val phoneticX = syllableLayout.position.x
+                val phoneticY =
+                    syllableLayout.position.y - phoneticLayout.size.height + 4.dp.toPx() + floatOffset
+
+                withTransform({ scale(scale = scale, pivot = syllableLayout.wordPivot) }) {
+                    drawText(
+                        textLayoutResult = phoneticLayout,
+                        color = drawColor.copy(alpha = 0.4f),
+                        topLeft = Offset(phoneticX, phoneticY)
+                    )
                 }
             }
         } else {
@@ -298,7 +361,8 @@ private fun DrawScope.drawRowText(
             val animationProgress = (timeSinceStart / animationFixedDuration).coerceIn(0f, 1f)
 
             val maxOffsetY = 4f
-            val floatCurveValue = CubicBezierEasing(0.0f, 0.0f, 0.2f, 1.0f).transform(1f - animationProgress)
+            val floatCurveValue =
+                CubicBezierEasing(0.0f, 0.0f, 0.2f, 1.0f).transform(1f - animationProgress)
             val floatOffset = maxOffsetY * floatCurveValue
 
             val finalPosition = syllableLayout.position.copy(
@@ -310,6 +374,17 @@ private fun DrawScope.drawRowText(
                 color = drawColor,
                 topLeft = finalPosition,
             )
+
+            syllableLayout.phoneticLayoutResult?.let { phoneticLayout ->
+                val phoneticX = syllableLayout.position.x
+                val phoneticY = finalPosition.y - phoneticLayout.size.height + 4.dp.toPx()
+                drawText(
+                    textLayoutResult = phoneticLayout,
+                    color = drawColor.copy(alpha = 0.4f),
+                    topLeft = Offset(phoneticX, phoneticY),
+                )
+            }
+
             if (showDebugRectangles) {
                 drawRect(
                     color = Color.Green, topLeft = finalPosition, size = Size(
@@ -336,6 +411,7 @@ private fun DrawScope.drawRowText(
  * @param modifier Modifier for the layout.
  * @param normalLineTextStyle Style for normal lines.
  * @param accompanimentLineTextStyle Style for accompaniment lines.
+ * @param phoneticTextStyle Style for phonetics.
  * @param activeColor Color for the active (sung) portion of text.
  * @param blendMode Blend mode for drawing.
  * @param showDebugRectangles Debug flag for layout bounds.
@@ -350,6 +426,7 @@ fun KaraokeLineText(
     modifier: Modifier = Modifier,
     normalLineTextStyle: TextStyle = LocalTextStyle.current,
     accompanimentLineTextStyle: TextStyle = LocalTextStyle.current,
+    phoneticTextStyle: TextStyle = LocalTextStyle.current,
     activeColor: Color = Color.White,
     blendMode: BlendMode = BlendMode.SrcOver,
     showDebugRectangles: Boolean = false,
@@ -377,7 +454,12 @@ fun KaraokeLineText(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp, horizontal = 16.dp),
+            .padding(
+                vertical = 8.dp,
+                horizontal =
+                    if (line is KaraokeLine.AccompanimentKaraokeLine) 0.dp
+                    else 16.dp
+            ),
         verticalArrangement = Arrangement.spacedBy(2.dp),
         horizontalAlignment = columnHorizontalAlignment
     ) {
@@ -386,7 +468,9 @@ fun KaraokeLineText(
             val availableWidthPx = with(density) { maxWidth.toPx() }
 
             val textStyle = remember(line is KaraokeLine.AccompanimentKaraokeLine) {
-                val baseStyle = if (line is KaraokeLine.AccompanimentKaraokeLine) accompanimentLineTextStyle else normalLineTextStyle
+                val baseStyle =
+                    if (line is KaraokeLine.AccompanimentKaraokeLine) accompanimentLineTextStyle
+                    else normalLineTextStyle
                 baseStyle.copy(textDirection = TextDirection.Content)
             }
 
@@ -408,6 +492,7 @@ fun KaraokeLineText(
                         syllables = processedSyllables,
                         textMeasurer = textMeasurer,
                         style = textStyle,
+                        phoneticStyle = phoneticTextStyle,
                         isAccompanimentLine = line is KaraokeLine.AccompanimentKaraokeLine,
                         spaceWidth = spaceWidth
                     )
@@ -429,19 +514,34 @@ fun KaraokeLineText(
                 textMeasurer.measure("M", textStyle).size.height.toFloat()
             }
 
-            val finalLineLayouts = remember(wrappedLines, availableWidthPx, lineHeight,
-                isLineRtl, isRightAligned) {
+            val phoneticHeight = remember(phoneticTextStyle) {
+                textMeasurer.measure("M", phoneticTextStyle).size.height.toFloat()
+            }
+
+            val finalLineLayouts = remember(
+                wrappedLines, availableWidthPx, lineHeight,
+                isLineRtl, isRightAligned
+            ) {
                 calculateStaticLineLayout(
                     wrappedLines = wrappedLines,
                     isLineRightAligned = isRightAligned,
                     canvasWidth = availableWidthPx,
                     lineHeight = lineHeight,
+                    phoneticHeight = phoneticHeight,
                     isRtl = isLineRtl
                 )
             }
 
-            val totalHeight = remember(wrappedLines, lineHeight) {
-                lineHeight * wrappedLines.size
+            val hasPhonetics = remember(initialLayouts) {
+                initialLayouts.any { it.phoneticLayoutResult != null }
+            }
+
+            val totalHeight = remember(wrappedLines, lineHeight, hasPhonetics, phoneticHeight) {
+                var height = lineHeight * wrappedLines.size
+                if (hasPhonetics) {
+                    height += phoneticHeight * wrappedLines.size
+                }
+                height
             }
 
             Canvas(modifier = Modifier.size(maxWidth, (totalHeight.roundToInt() + 8).toDp())) {
@@ -457,10 +557,81 @@ fun KaraokeLineText(
             }
         }
 
+        if (line is KaraokeLine.MainKaraokeLine) {
+            line.accompanimentLines?.forEach { bgLine ->
+                val isAccompanimentVisible by remember(bgLine) {
+                    derivedStateOf {
+                        val currentTime = currentTimeProvider()
+                        // Use a simplified visibility range for nested lines, or pass ranges down
+                        currentTime >= (bgLine.start - 600) && currentTime <= (bgLine.end + 600)
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = isAccompanimentVisible,
+                    enter = scaleIn(
+                        tween(600),
+                        transformOrigin = TransformOrigin(
+                            if (isRightAligned) 1f else 0f, 0f
+                        )
+                    ) + fadeIn(tween(600)) + slideInVertically(
+                        tween(
+                            600
+                        )
+                    ) + expandVertically(tween(600)),
+                    exit = scaleOut(
+                        tween(600),
+                        transformOrigin = TransformOrigin(
+                            if (isRightAligned) 1f else 0f, 0f
+                        )
+                    ) + fadeOut(tween(600)) + slideOutVertically(
+                        tween(
+                            600
+                        )
+                    ) + shrinkVertically(tween(600)),
+                ) {
+                    LyricsLineItem(
+                        isFocused = true,
+                        isRightAligned = isRightAligned,
+                        onLineClicked = { },
+                        onLinePressed = { },
+                        blurRadius = { 0f },
+                        blendMode = blendMode,
+                        activeAlpha = 0.6f,
+                        inactiveAlpha = 0.2f
+                    ) {
+                        KaraokeLineText(
+                            line = bgLine,
+                            currentTimeProvider = currentTimeProvider,
+                            normalLineTextStyle = normalLineTextStyle,
+                            accompanimentLineTextStyle = accompanimentLineTextStyle,
+                            phoneticTextStyle = phoneticTextStyle,
+                            activeColor = activeColor,
+                            blendMode = blendMode,
+                            showDebugRectangles = showDebugRectangles,
+                            textMeasurer = textMeasurer
+                        )
+                    }
+                }
+            }
+        }
+
         line.translation?.let { translation ->
             Text(
                 text = translation,
                 color = activeColor.copy(0.4f),
+                modifier = Modifier.graphicsLayer {
+                    this.blendMode = blendMode
+                },
+                textAlign = translationTextAlign
+            )
+        }
+
+        line.phonetic?.let { phonetic ->
+            Text(
+                text = phonetic,
+                style = phoneticTextStyle,
+                color = activeColor.copy(alpha = 0.6f),
                 modifier = Modifier.graphicsLayer {
                     this.blendMode = blendMode
                 },

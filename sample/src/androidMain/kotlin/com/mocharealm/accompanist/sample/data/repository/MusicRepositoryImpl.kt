@@ -7,12 +7,12 @@ import com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeLine
 import com.mocharealm.accompanist.lyrics.core.model.karaoke.copy
 import com.mocharealm.accompanist.lyrics.core.model.synced.SyncedLine
 import com.mocharealm.accompanist.lyrics.core.parser.AutoParser
+import com.mocharealm.accompanist.sample.data.utils.AndroidPhoneticProvider
 import com.mocharealm.accompanist.sample.domain.model.MusicItem
 import com.mocharealm.accompanist.sample.domain.repository.MusicRepository
 
 class MusicRepositoryImpl(private val context: Context): MusicRepository {
-    private val autoParser = AutoParser()
-
+    private val autoParser = AutoParser(AndroidPhoneticProvider)
 
     override suspend fun getMusicItems(): List<MusicItem> {
         return listOf(
