@@ -67,6 +67,7 @@ import com.mocharealm.accompanist.lyrics.ui.utils.modifier.springPlacement
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import kotlin.math.absoluteValue
 
 /**
  * A comprehensive lyrics view that supports Karaoke and Synced lyrics with advanced rendering.
@@ -259,8 +260,20 @@ fun KaraokeLyricsView(
         if (mainLinesIndices.isNotEmpty()) {
             lyrics.lines.forEachIndexed { index, line ->
                 if (line is KaraokeLine && line is KaraokeLine.AccompanimentKaraokeLine) {
-                    val anchorIndex =
-                        mainLinesIndices.findLast { it <= index } ?: mainLinesIndices.first()
+                    // Find the main line that is closest in time (either the one just before or just after)
+                    val beforeIdx = mainLinesIndices.findLast { it <= index }
+                    val afterIdx = mainLinesIndices.find { it >= index }
+                    
+                    val anchorIndex = when {
+                        beforeIdx != null && afterIdx != null -> {
+                            val distBefore = (line.start - lyrics.lines[beforeIdx].start).absoluteValue
+                            val distAfter = (lyrics.lines[afterIdx].start - line.start).absoluteValue
+                            if (distBefore <= distAfter) beforeIdx else afterIdx
+                        }
+                        beforeIdx != null -> beforeIdx
+                        afterIdx != null -> afterIdx
+                        else -> mainLinesIndices.first()
+                    }
                     map[index] = anchorIndex
                 }
             }
@@ -561,28 +574,37 @@ fun KaraokeLyricsView(
                                             }
                                         }
 
+                                        val associatedMainIndex = accompanimentToMainMap[index]
+                                        val isAboveMain = remember(associatedMainIndex, index) {
+                                            associatedMainIndex != null && index < associatedMainIndex
+                                        }
+
                                         AnimatedVisibility(
                                             visible = isAccompanimentVisible,
                                             enter = scaleIn(
                                                 tween(animDuration),
                                                 transformOrigin = TransformOrigin(
-                                                    if (isVisualRightAligned) 1f else 0f, 0f
+                                                    if (isVisualRightAligned) 1f else 0f, 
+                                                    if (isAboveMain) 1f else 0f
                                                 )
                                             ) + fadeIn(tween(animDuration)) + slideInVertically(
-                                                tween(
-                                                    animDuration
-                                                )
-                                            ) + expandVertically(tween(animDuration)),
+                                                tween(animDuration)
+                                            ) { if (isAboveMain) it else -it } + expandVertically(
+                                                tween(animDuration),
+                                                expandFrom = if (isAboveMain) Alignment.Bottom else Alignment.Top
+                                            ),
                                             exit = scaleOut(
                                                 tween(animDuration),
                                                 transformOrigin = TransformOrigin(
-                                                    if (isVisualRightAligned) 1f else 0f, 0f
+                                                    if (isVisualRightAligned) 1f else 0f,
+                                                    if (isAboveMain) 1f else 0f
                                                 )
                                             ) + fadeOut(tween(animDuration)) + slideOutVertically(
-                                                tween(
-                                                    animDuration
-                                                )
-                                            ) + shrinkVertically(tween(animDuration)),
+                                                tween(animDuration)
+                                            ) { if (isAboveMain) it else -it } + shrinkVertically(
+                                                tween(animDuration),
+                                                shrinkTowards = if (isAboveMain) Alignment.Bottom else Alignment.Top
+                                            ),
                                         ) {
                                             LyricsLineItem(
                                                 isFocused = isCurrentFocusLine,
