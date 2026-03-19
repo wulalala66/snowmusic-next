@@ -54,6 +54,8 @@ kotlin {
 
             implementation(libs.androidx.lifecycle.viewmodel.compose)
             implementation(libs.kotlinx.coroutines.guava)
+
+            implementation(libs.tinyPinyin)
         }
 
         jvmMain.dependencies {

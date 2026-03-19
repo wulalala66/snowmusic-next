@@ -23,6 +23,7 @@ koin-bom = { group = "io.insert-koin", name = "koin-bom", version = "4.1.1" }
 koin-compose = { group = "io.insert-koin", name = "koin-compose" }
 koin-compose-viewmodel = { group = "io.insert-koin", name = "koin-compose-viewmodel" }
 cloudy = { module = "com.github.skydoves:cloudy", version = "0.4.0" }
+tinyPinyin = { module = "com.github.promeg:tinypinyin", version = "2.0.3" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
