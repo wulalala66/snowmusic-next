@@ -20,6 +20,7 @@ fun SyncedLineText(
     textStyle: TextStyle,
     textColor: Color,
     modifier: Modifier = Modifier,
+    showTranslation: Boolean = true
 ) {
     Column(
         modifier
@@ -33,12 +34,14 @@ fun SyncedLineText(
             color = textColor,
             textAlign = if (isLineRtl) TextAlign.End else TextAlign.Start
         )
-        line.translation?.let {
-            Text(
-                text = it,
-                color = textColor.copy(alpha = 0.6f),
-                textAlign = if (isLineRtl) TextAlign.End else TextAlign.Start
-            )
+        if (showTranslation) {
+            line.translation?.let {
+                Text(
+                    text = it,
+                    color = textColor.copy(alpha = 0.6f),
+                    textAlign = if (isLineRtl) TextAlign.End else TextAlign.Start
+                )
+            }
         }
     }
 }

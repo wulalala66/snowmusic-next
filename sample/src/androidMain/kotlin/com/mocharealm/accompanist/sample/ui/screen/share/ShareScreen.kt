@@ -275,6 +275,7 @@ private fun ShareGenerateStep(
     Column {
         BackHandler { onBackPressed() }
         var showTranslation by remember { mutableStateOf(true) }
+        var showPhonetic by remember { mutableStateOf(true) }
         val localContext = LocalContext.current
         LaunchedEffect(Unit) {
             shareViewModel.toastEvent.collect { message ->
@@ -324,6 +325,7 @@ private fun ShareGenerateStep(
                             capturableController = capturableControllers[pageNumber],
                             backgroundState = context.backgroundState,
                             showTranslation = showTranslation,
+                            showPhonetic = showPhonetic,
                             selectedLines = selectedLines,
                             title = context.title,
                             artist = context.artist,
@@ -336,6 +338,7 @@ private fun ShareGenerateStep(
                         ShareCardSpotify(
                             capturableController = capturableControllers[pageNumber],
                             showTranslation = showTranslation,
+                            showPhonetic = showPhonetic,
                             selectedLines = selectedLines,
                             modifier = Modifier.align(Alignment.Center)
                         )
@@ -358,21 +361,38 @@ private fun ShareGenerateStep(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                     Arrangement.SpaceBetween,
                     Alignment.CenterVertically
                 ) {
-                    Column {
-                        Text(
-                            "Show translation",
-                            color = if (isSystemInDarkTheme()) Color.White else Color.Black
-                        )
-//                        Text(
-//                            "Tap to toggle",
-//                            color = if (isSystemInDarkTheme()) Color.White else Color.Black
-//                        )
-                    }
+                    Text(
+                        "Show translation",
+                        color = if (isSystemInDarkTheme()) Color.White else Color.Black
+                    )
                     Switch(showTranslation, onCheckedChange = { showTranslation = it })
+                }
+                Spacer(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(0.5.dp)
+                        .background(
+                            if (isSystemInDarkTheme()) Color.White.copy(0.2f) else Color.Black.copy(0.2f)
+                        )
+                )
+            }
+            if (selectedLines.any { it.phonetic != null || it.syllables.any { s -> s.phonetic != null } }) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    Arrangement.SpaceBetween,
+                    Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Show phonetic",
+                        color = if (isSystemInDarkTheme()) Color.White else Color.Black
+                    )
+                    Switch(showPhonetic, onCheckedChange = { showPhonetic = it })
                 }
                 Spacer(
                     Modifier
@@ -437,6 +457,7 @@ fun ShareCardApple(
     capturableController: CapturableController,
     backgroundState: BackgroundVisualState,
     showTranslation: Boolean,
+    showPhonetic: Boolean,
     selectedLines: List<KaraokeLine>,
     title: String,
     artist: String,
@@ -509,6 +530,14 @@ fun ShareCardApple(
                                 ),
                                 color = Color.White
                             )
+                            AnimatedVisibility(showPhonetic) {
+                                line.phonetic?.let { phonetic ->
+                                    Text(
+                                        phonetic,
+                                        color = Color.White.copy(0.4f)
+                                    )
+                                }
+                            }
                             AnimatedVisibility(showTranslation) {
                                 line.translation?.let { translation ->
                                     Text(
@@ -548,6 +577,7 @@ fun ShareCardApple(
 fun ShareCardSpotify(
     capturableController: CapturableController,
     showTranslation: Boolean,
+    showPhonetic: Boolean,
     selectedLines: List<KaraokeLine>,
     modifier: Modifier = Modifier
 ) {
@@ -584,6 +614,14 @@ fun ShareCardSpotify(
                             ),
                             color = Color.White.copy(0.4f)
                         )
+                        AnimatedVisibility(showPhonetic) {
+                            line.phonetic?.let { phonetic ->
+                                Text(
+                                    phonetic,
+                                    color = Color.White.copy(0.6f)
+                                )
+                            }
+                        }
                         AnimatedVisibility(showTranslation) {
                             line.translation?.let { translation ->
                                 Text(

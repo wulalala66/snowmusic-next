@@ -5,14 +5,6 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,7 +34,6 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.LookaheadScope
 import androidx.compose.ui.layout.layout
@@ -119,7 +110,7 @@ fun KaraokeLyricsView(
         fontSize = 13.sp,
         fontWeight = FontWeight.Normal,
     ),
-//    TODO: pass it to dynamicFadeEdge
+//    TODO: expose it
 //    verticalFadeBrush: Brush = Brush.verticalGradient(
 //        0f to Color.White.copy(0f),
 //        0.05f to Color.White,
@@ -128,7 +119,11 @@ fun KaraokeLyricsView(
 //    ),
     blendMode: BlendMode = BlendMode.Plus,
     useBlurEffect: Boolean = true,
+    showTranslation: Boolean = true,
+    showPhonetic: Boolean = true,
     offset: Dp = 32.dp,
+    keepAliveZone: Dp = 100.dp,
+    blurDelta: Float = 3f,
     showDebugRectangles: Boolean = false
 ) {
     val density = LocalDensity.current
@@ -139,14 +134,18 @@ fun KaraokeLyricsView(
     val stableOffset = remember(offset) { offset }
     val stableOffsetPx =
         remember(stableOffset) { with(density) { stableOffset.toPx().fastRoundToInt() } }
-    val keepAliveZone = 300.dp
     val keepAliveZonePx = with(density) { keepAliveZone.toPx() }
     val stableBlendMode = remember(blendMode) { blendMode }
 
     val textMeasurer = rememberTextMeasurer()
     val layoutCache = remember { mutableStateMapOf<Int, List<SyllableLayout>>() }
 
-    LaunchedEffect(lyrics, stableNormalTextStyle, stableAccompanimentTextStyle, stablePhoneticTextStyle) {
+    LaunchedEffect(
+        lyrics,
+        stableNormalTextStyle,
+        stableAccompanimentTextStyle,
+        stablePhoneticTextStyle
+    ) {
         layoutCache.clear()
         withContext(Dispatchers.Default) {
             val normalStyle = stableNormalTextStyle.copy(textDirection = TextDirection.Content)
@@ -161,7 +160,8 @@ fun KaraokeLyricsView(
             lyrics.lines.forEachIndexed { index, line ->
                 if (!isActive) return@forEachIndexed
                 if (line is KaraokeLine) {
-                    val style = if (line is KaraokeLine.AccompanimentKaraokeLine) accompanimentStyle else normalStyle
+                    val style =
+                        if (line is KaraokeLine.AccompanimentKaraokeLine) accompanimentStyle else normalStyle
                     val spaceWidth =
                         if (line is KaraokeLine.AccompanimentKaraokeLine) accompanimentSpaceWidth else normalSpaceWidth
 
@@ -204,13 +204,16 @@ fun KaraokeLyricsView(
                     // Find the main line that is closest in time (either the one just before or just after)
                     val beforeIdx = mainLinesIndices.findLast { it <= index }
                     val afterIdx = mainLinesIndices.find { it >= index }
-                    
+
                     val anchorIndex = when {
                         beforeIdx != null && afterIdx != null -> {
-                            val distBefore = (line.start - lyrics.lines[beforeIdx].start).absoluteValue
-                            val distAfter = (lyrics.lines[afterIdx].start - line.start).absoluteValue
+                            val distBefore =
+                                (line.start - lyrics.lines[beforeIdx].start).absoluteValue
+                            val distAfter =
+                                (lyrics.lines[afterIdx].start - line.start).absoluteValue
                             if (distBefore <= distAfter) beforeIdx else afterIdx
                         }
+
                         beforeIdx != null -> beforeIdx
                         afterIdx != null -> afterIdx
                         else -> mainLinesIndices.first()
@@ -239,35 +242,6 @@ fun KaraokeLyricsView(
         return lyrics.lines.indices.filter { index ->
             time >= lyrics.lines[index].start && time < effectiveEndTimes[index]
         }
-    }
-
-    val lineClusters = remember(lyrics.lines, effectiveEndTimes) {
-        val clusters = mutableListOf<List<Int>>()
-        if (lyrics.lines.isEmpty()) return@remember clusters
-
-        var currentCluster = mutableListOf<Int>()
-        var clusterEnd = -1
-
-        lyrics.lines.forEachIndexed { index, line ->
-            val lineEnd = effectiveEndTimes[index]
-            if (currentCluster.isEmpty()) {
-                currentCluster.add(index)
-                clusterEnd = lineEnd
-            } else {
-                if (line.start < clusterEnd) {
-                    currentCluster.add(index)
-                    clusterEnd = maxOf(clusterEnd, lineEnd)
-                } else {
-                    clusters.add(currentCluster)
-                    currentCluster = mutableListOf(index)
-                    clusterEnd = lineEnd
-                }
-            }
-        }
-        if (currentCluster.isNotEmpty()) {
-            clusters.add(currentCluster)
-        }
-        clusters
     }
 
     val firstFocusedLineIndex by remember(lyrics.lines, effectiveEndTimes) {
@@ -309,25 +283,6 @@ fun KaraokeLyricsView(
         }
     }
 
-    val accompanimentVisibilityRanges = remember(lyrics.lines) {
-        val map = mutableMapOf<Int, IntRange>()
-        val mainLines = lyrics.lines.filter { it !is KaraokeLine || it !is KaraokeLine.AccompanimentKaraokeLine }
-        if (mainLines.isNotEmpty()) {
-            lyrics.lines.forEachIndexed { index, line ->
-                if (line is KaraokeLine && line is KaraokeLine.AccompanimentKaraokeLine) {
-                    val entryAnchor =
-                        mainLines.findLast { it.start <= line.start } ?: mainLines.firstOrNull()
-                    val exitAnchor =
-                        mainLines.firstOrNull { it.end >= line.end } ?: mainLines.lastOrNull()
-                    val visualStartTime = (entryAnchor?.start ?: line.start) - 600
-                    val visualEndTime = (exitAnchor?.end ?: line.end)
-                    map[index] = visualStartTime..visualEndTime
-                }
-            }
-        }
-        map
-    }
-
     val scrollInCode = remember { mutableStateOf(false) }
 
     val isManualScrolling by remember {
@@ -351,8 +306,9 @@ fun KaraokeLyricsView(
                 if (scrollOffset != null) {
                     listState.scrollBy(scrollOffset)
                 } else {
-                    listState.animateScrollToItem(firstFocusedLineIndex,
-                        (-stableOffsetPx-keepAliveZonePx).toInt()
+                    listState.animateScrollToItem(
+                        firstFocusedLineIndex,
+                        (-stableOffsetPx - keepAliveZonePx).toInt()
                     )
                 }
             } catch (_: Exception) {
@@ -434,16 +390,17 @@ fun KaraokeLyricsView(
                             }
                         }
 
-                        val distanceWeightState = remember(useBlurEffect, allFocusedLineIndex, nextPendingLineIndex) {
-                            derivedStateOf {
-                                if (!useBlurEffect) return@derivedStateOf 0
+                        val distanceWeightState =
+                            remember(useBlurEffect, allFocusedLineIndex, nextPendingLineIndex) {
+                                derivedStateOf {
+                                    val start =
+                                        allFocusedLineIndex.firstOrNull() ?: nextPendingLineIndex
+                                    val end =
+                                        allFocusedLineIndex.lastOrNull() ?: nextPendingLineIndex
 
-                                val start = allFocusedLineIndex.firstOrNull() ?: nextPendingLineIndex
-                                val end = allFocusedLineIndex.lastOrNull() ?: nextPendingLineIndex
-
-                                maxOf(0, start - index, index - end)
+                                    maxOf(0, start - index, index - end)
+                                }
                             }
-                        }
 
                         val dynamicStiffness by remember(distanceWeightState.value) {
                             derivedStateOf {
@@ -495,11 +452,11 @@ fun KaraokeLyricsView(
 
 
                             val blurRadiusState = animateFloatAsState(
-                                targetValue =
-                                    if (!useBlurEffect) 0f
-                                    else if (distanceWeightState.value > 0 && (!listState.isScrollInProgress || scrollInCode.value)) {
-                                        distanceWeightState.value * 4f
-                                    } else 0f,
+                                targetValue = (
+                                        if (!useBlurEffect) 0f
+                                        else if (distanceWeightState.value > 0 && (!listState.isScrollInProgress || scrollInCode.value)) {
+                                            distanceWeightState.value * blurDelta
+                                        } else 0f),
                                 animationSpec = tween(300),
                             )
 
@@ -523,6 +480,8 @@ fun KaraokeLyricsView(
                                                 activeColor = textColor,
                                                 blendMode = stableBlendMode,
                                                 showDebugRectangles = showDebugRectangles,
+                                                showTranslation = showTranslation,
+                                                showPhonetic = showPhonetic,
                                                 precalculatedLayouts = layoutCache[index]
                                             )
                                         }
@@ -544,6 +503,7 @@ fun KaraokeLyricsView(
                                             isLineRtl = isLineRtl,
                                             textStyle = stableNormalTextStyle.copy(lineHeight = 1.2.em),
                                             textColor = textColor,
+                                            showTranslation = showTranslation,
                                         )
                                     }
                                 }

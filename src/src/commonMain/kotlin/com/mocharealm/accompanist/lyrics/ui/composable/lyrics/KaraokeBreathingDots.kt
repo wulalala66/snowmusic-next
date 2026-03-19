@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -27,6 +28,8 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
+private val layerPaint = Paint()
+
 data class KaraokeBreathingDotsDefaults(
     val number: Int = 3,
     val size: Dp = 16.dp,
@@ -37,7 +40,6 @@ data class KaraokeBreathingDotsDefaults(
     val exitDurationMs: Int = 200,
     val breathingDotsColor: Color = Color.White
 )
-
 /**
  * Displays breathing dots animation during instrumental intros or interludes.
  * The dots breathe/pulse and fade in/out to indicate progress during non-lyrical sections.
@@ -58,11 +60,34 @@ fun KaraokeBreathingDots(
     modifier: Modifier = Modifier,
     defaults: KaraokeBreathingDotsDefaults = KaraokeBreathingDotsDefaults(),
 ) {
-    Box(modifier) {
-        val size = with(LocalDensity.current) { defaults.size.toPx() }
-        val margin = with(LocalDensity.current) { defaults.margin.toPx() }
-        val totalWidth = size * defaults.number + margin * (defaults.number - 1)
+    val density = LocalDensity.current
 
+    val sizePx = remember(density, defaults.size) { with(density) { defaults.size.toPx() } }
+    val marginPx = remember(density, defaults.margin) { with(density) { defaults.margin.toPx() } }
+    val totalWidthPx = sizePx * defaults.number + marginPx * (defaults.number - 1)
+
+    val timeline = remember(startTimeMs, endTimeMs, defaults) {
+        val totalAvailable = (endTimeMs - startTimeMs).toFloat()
+        val defaultTotal = (defaults.enterDurationMs + defaults.preExitDipAndRiseDuration +
+                defaults.preExitStillDuration + defaults.exitDurationMs).toFloat()
+
+        val factor = if (totalAvailable < defaultTotal) totalAvailable / defaultTotal else 1f
+
+        val enter = defaults.enterDurationMs * factor
+        val dip = defaults.preExitDipAndRiseDuration * factor
+        val still = defaults.preExitStillDuration * factor
+        val exit = defaults.exitDurationMs * factor
+
+        object {
+            val enterEnd = startTimeMs + enter
+            val dipStart = endTimeMs - exit - still - dip
+            val stillStart = endTimeMs - exit - still
+            val exitStart = endTimeMs - exit
+            val breathingDuration = dipStart - enterEnd
+        }
+    }
+
+    Box(modifier) {
         Canvas(
             Modifier
                 .align(
@@ -78,133 +103,87 @@ fun KaraokeBreathingDots(
                     height = defaults.size
                 )
         ) {
-            if (totalWidth <= 0f) return@Canvas
+            if (totalWidthPx <= 0f) return@Canvas
 
             val currentTime = currentTimeProvider().toFloat()
-            val breathingAmplitude = 0.1f // Amplitude (0.8 to 1.0)
-            val breathingCenter = 0.9f  // Center
-            val breathingTrough = breathingCenter - breathingAmplitude
-
-            val enterDuration = defaults.enterDurationMs.toFloat()
-            val exitDuration = defaults.exitDurationMs.toFloat()
-            val preExitStillDuration = defaults.preExitStillDuration.toFloat()
-            val preExitDipAndRiseDuration = defaults.preExitDipAndRiseDuration.toFloat()
-
-            val exitStartTime = endTimeMs - exitDuration
-            val preExitStillStartTime = exitStartTime - preExitStillDuration
-            val preExitDipAndRiseStartTime = preExitStillStartTime - preExitDipAndRiseDuration
-            val breathingStartTime = startTimeMs + enterDuration
-            val breathingDuration = preExitDipAndRiseStartTime - breathingStartTime
-
             var scale: Float
             var alpha: Float
             var revealProgress: Float
 
-            if (breathingDuration < 0) {
-                val overallProgress = when {
-                    currentTime < startTimeMs + enterDuration -> (currentTime - startTimeMs) / enterDuration
-                    currentTime > endTimeMs - exitDuration -> (endTimeMs - currentTime) / exitDuration
-                    else -> 1f
-                }.coerceIn(0f, 1f)
-
-                scale = overallProgress
-                alpha = overallProgress
-                revealProgress = if (currentTime < startTimeMs + enterDuration) overallProgress else 1f
-            } else {
-                when {
-                    // 1. Enter phase (0.0 -> 0.8)
-                    currentTime < breathingStartTime -> {
-                        val progress = (currentTime - startTimeMs) / enterDuration
-                        alpha = FastOutSlowInEasing.transform(progress)
-                        scale = alpha * 0.8f
-                        revealProgress = alpha
-                    }
-
-                    // 2. Breathing phase (0.8 <-> 1.0)
-                    currentTime < preExitDipAndRiseStartTime -> {
-                        alpha = 1f
-                        revealProgress = 1f
-                        val timeInPhase = currentTime - breathingStartTime
-                        val angle = (timeInPhase / 3000f) * 2 * PI
-                        scale = 0.9f - 0.1f * cos(angle.toFloat())
-                    }
-
-                    // 3. Pre-exit
-                    currentTime < preExitStillStartTime -> {
-                        alpha = 1f
-                        revealProgress = 1f
-                        val phaseProgress = (currentTime - preExitDipAndRiseStartTime) / preExitDipAndRiseDuration
-
-                        val angle = phaseProgress * 2 * PI
-                        val cosValue = cos(angle.toFloat()) // 1 -> -1 -> 1
-
-                        scale = 0.8f + 0.2f * cosValue
-                    }
-
-                    // 4. Still
-                    currentTime < exitStartTime -> {
-                        alpha = 1f
-                        revealProgress = 1f
-                        scale = 1.0f
-                    }
-
-                    // 5. Exit phase (1.0 -> 0.0)
-                    else -> {
-                        val progress = ((endTimeMs - currentTime) / exitDuration).coerceIn(0f, 1f)
-                        val eased = FastOutSlowInEasing.transform(progress)
-                        alpha = eased
-                        scale = eased
-                        revealProgress = 1f
-                    }
+            when {
+                // Stage 1: Intro
+                currentTime < timeline.enterEnd -> {
+                    val progress = ((currentTime - startTimeMs) / (timeline.enterEnd - startTimeMs)).coerceIn(0f, 1f)
+                    alpha = FastOutSlowInEasing.transform(progress)
+                    scale = alpha * 0.8f
+                    revealProgress = alpha
+                }
+                // Stage 2: Breathe
+                currentTime < timeline.dipStart -> {
+                    alpha = 1f
+                    revealProgress = 1f
+                    val timeInPhase = currentTime - timeline.enterEnd
+                    val angle = (timeInPhase / 3000f) * 2 * PI
+                    scale = 0.9f - 0.1f * cos(angle.toFloat())
+                }
+                // Stage 3: Pre-exit
+                currentTime < timeline.stillStart -> {
+                    alpha = 1f
+                    revealProgress = 1f
+                    val progress = (currentTime - timeline.dipStart) / (timeline.stillStart - timeline.dipStart)
+                    scale = 0.8f + 0.2f * cos(progress * 2 * PI).toFloat()
+                }
+                // Stage 4: Still
+                currentTime < timeline.exitStart -> {
+                    alpha = 1f
+                    revealProgress = 1f
+                    scale = 1.0f
+                }
+                // Stage 5: Outro
+                else -> {
+                    val progress = ((endTimeMs - currentTime) / (endTimeMs - timeline.exitStart)).coerceIn(0f, 1f)
+                    val eased = FastOutSlowInEasing.transform(progress)
+                    alpha = eased
+                    scale = eased
+                    revealProgress = 1f
                 }
             }
 
             drawIntoCanvas { canvas ->
-                val paint = Paint()
-                canvas.saveLayer(Rect(Offset.Zero, Size(totalWidth, size)), paint)
+                canvas.saveLayer(Rect(Offset.Zero, Size(totalWidthPx, sizePx)), layerPaint)
 
                 withTransform({
-                    this.scale(
-                        scale = scale,
-                        pivot = Offset(totalWidth / 2f, size / 2f)
-                    )
+                    this.scale(scale = scale, pivot = Offset(totalWidthPx / 2f, sizePx / 2f))
                 }) {
                     repeat(defaults.number) { index ->
-                        val dotAlpha: Float
-                        if (breathingDuration > 0 && currentTime >= breathingStartTime) {
-                            val dotDurationMs = breathingDuration / defaults.number
-                            val dotStartTimeInPhase = breathingStartTime + index * dotDurationMs
-                            val progressForAlpha = ((currentTime - dotStartTimeInPhase) / dotDurationMs).coerceIn(0f, 1f)
-                            dotAlpha = 0.4f + 0.6f * LinearEasing.transform(progressForAlpha)
+                        val dotAlpha = if (timeline.breathingDuration > 0 && currentTime >= timeline.enterEnd) {
+                            val dotDuration = timeline.breathingDuration / defaults.number
+                            val dotStart = timeline.enterEnd + (index * dotDuration)
+                            ((currentTime - dotStart) / dotDuration).coerceIn(0f, 1f) * 0.6f + 0.4f
                         } else {
-                            dotAlpha = 0.4f
+                            0.4f
                         }
 
                         drawCircle(
                             color = defaults.breathingDotsColor.copy(alpha = dotAlpha * alpha),
-                            radius = size / 2,
-                            center = Offset(size / 2 + (size + margin) * index, size / 2)
+                            radius = sizePx / 2,
+                            center = Offset(sizePx / 2 + (sizePx + marginPx) * index, sizePx / 2)
                         )
                     }
                 }
 
                 val softEdgeWidth = 0.5f
-                val revealPosition = revealProgress * (1f + softEdgeWidth)
-                val startFade = (revealPosition - softEdgeWidth).coerceIn(0f, 1f)
-                val endFade = revealPosition.coerceIn(0f, 1f)
-
-                if (defaults.breathingDotsColor != Color.Black) {
-                    val brush = Brush.horizontalGradient(
-                        colorStops = arrayOf(
-                            0f to Color.Black,
-                            startFade to Color.Black,
-                            endFade to Color.Transparent,
-                            1f to Color.Transparent
-                        )
+                val revealPos = revealProgress * (1f + softEdgeWidth)
+                val brush = Brush.horizontalGradient(
+                    colorStops = arrayOf(
+                        0f to Color.Black,
+                        (revealPos - softEdgeWidth).coerceIn(0f, 1f) to Color.Black,
+                        revealPos.coerceIn(0f, 1f) to Color.Transparent,
+                        1f to Color.Transparent
                     )
+                )
+                drawRect(brush = brush, blendMode = BlendMode.DstIn)
 
-                    drawRect(brush = brush, blendMode = BlendMode.DstIn)
-                }
                 canvas.restore()
             }
         }

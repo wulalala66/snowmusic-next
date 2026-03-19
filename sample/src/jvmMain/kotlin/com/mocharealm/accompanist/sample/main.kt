@@ -49,7 +49,7 @@ fun main() = application {
         KaraokeLyricsView(
             listState = listState,
             lyrics = lyrics,
-            currentPosition = currentTime.toLong(),
+            currentPosition = { currentTime.toInt() },
             onLineClicked = { line ->
 
             },

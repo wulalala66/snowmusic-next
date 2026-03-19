@@ -224,7 +224,13 @@ fun MobilePlayerScreen(
                 )
             }
             Spacer(Modifier.width(8.dp))
-            PlayerControls(onOpenSongSelection = { playerViewModel.onOpenSongSelection() })
+            PlayerControls(
+                onOpenSongSelection = { playerViewModel.onOpenSongSelection() },
+                showTranslation = uiState.showTranslation,
+                showPhonetic = uiState.showPhonetic,
+                onToggleTranslation = { playerViewModel.toggleTranslation() },
+                onTogglePhonetic = { playerViewModel.togglePhonetic() }
+            )
         }
 
         val cover =
@@ -233,6 +239,8 @@ fun MobilePlayerScreen(
             listState = listState,
             lyrics = uiState.lyrics,
             currentPosition = animatedPosition,
+            showTranslation = uiState.showTranslation,
+            showPhonetic = uiState.showPhonetic,
             onSeekTo = { playerViewModel.seekTo(it) },
             onShare = { line ->
                 uiState.lyrics?.let { lyrics ->
@@ -314,7 +322,13 @@ fun PadPlayerScreen(
                     uiState.currentMusicItem?.testTarget?.split(" [")?.get(0)
                         ?: "Unknown"
                 )
-                PlayerControls(onOpenSongSelection = { playerViewModel.onOpenSongSelection() })
+                PlayerControls(
+                    onOpenSongSelection = { playerViewModel.onOpenSongSelection() },
+                    showTranslation = uiState.showTranslation,
+                    showPhonetic = uiState.showPhonetic,
+                    onToggleTranslation = { playerViewModel.toggleTranslation() },
+                    onTogglePhonetic = { playerViewModel.togglePhonetic() }
+                )
             }
 
         }
@@ -326,6 +340,8 @@ fun PadPlayerScreen(
                 listState = listState,
                 lyrics = uiState.lyrics,
                 currentPosition = animatedPosition,
+                showTranslation = uiState.showTranslation,
+                showPhonetic = uiState.showPhonetic,
                 onSeekTo = { playerViewModel.seekTo(it) },
                 onShare = { line ->
                     uiState.lyrics?.let { lyrics ->
@@ -351,6 +367,7 @@ fun PadPlayerScreen(
         }
     }
 }
+
 
 @Composable
 fun CustomSongSelectionDialog(
@@ -553,12 +570,50 @@ fun PlayerMetadata(
 @Composable
 fun PlayerControls(
     onOpenSongSelection: () -> Unit,
+    showTranslation: Boolean,
+    showPhonetic: Boolean,
+    onToggleTranslation: () -> Unit,
+    onTogglePhonetic: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Row(
         modifier = modifier.graphicsLayer { blendMode = BlendMode.Plus },
         horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Translation Toggle
+        Box(
+            Modifier
+                .clip(CircleShape)
+                .background(if (showTranslation) Color.White.copy(0.4f) else Color.White.copy(0.1f))
+                .clickable(onClick = onToggleTranslation)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+        ) {
+            Text(
+                "文",
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.Center)
+            )
+        }
+
+        // Phonetic Toggle
+        Box(
+            Modifier
+                .clip(CircleShape)
+                .background(if (showPhonetic) Color.White.copy(0.4f) else Color.White.copy(0.1f))
+                .clickable(onClick = onTogglePhonetic)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+        ) {
+            Text(
+                "音",
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.Center)
+            )
+        }
+
         Box(
             Modifier
                 .clip(CircleShape)
@@ -583,6 +638,8 @@ fun PlayerLyrics(
     listState: LazyListState,
     lyrics: SyncedLyrics?,
     currentPosition: () -> Int,
+    showTranslation: Boolean,
+    showPhonetic: Boolean,
     onSeekTo: (Int) -> Unit,
     onShare: (KaraokeLine) -> Unit,
     modifier: Modifier = Modifier
@@ -595,6 +652,8 @@ fun PlayerLyrics(
         currentPosition = currentPosition,
         onLineClicked = { line -> onSeekTo(line.start) },
         onLinePressed = { line -> onShare(line as KaraokeLine) },
+        showTranslation = showTranslation,
+        showPhonetic = showPhonetic,
         normalLineTextStyle = LocalTextStyle.current.copy(
             fontSize = 34.sp,
             fontFamily = SFPro(),

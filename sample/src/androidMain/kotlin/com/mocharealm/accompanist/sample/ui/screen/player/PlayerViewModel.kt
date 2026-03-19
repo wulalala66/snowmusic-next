@@ -47,7 +47,9 @@ data class PlayerUiState(
     val lyrics: SyncedLyrics? = null,
     val availableSongs: List<MusicItem> = emptyList(),
     val currentMusicItem: MusicItem? = null,
-    val isShareSheetVisible: Boolean = false
+    val isShareSheetVisible: Boolean = false,
+    val showTranslation: Boolean = true,
+    val showPhonetic: Boolean = true
 )
 
 class PlayerViewModel(
@@ -271,6 +273,14 @@ class PlayerViewModel(
                 )
             )
         }
+    }
+
+    fun toggleTranslation() {
+        updateState { it.copy(showTranslation = !it.showTranslation) }
+    }
+
+    fun togglePhonetic() {
+        updateState { it.copy(showPhonetic = !it.showPhonetic) }
     }
 
     override fun onCleared() {
