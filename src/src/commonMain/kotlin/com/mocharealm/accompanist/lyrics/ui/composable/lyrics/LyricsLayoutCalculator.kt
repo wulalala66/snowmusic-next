@@ -44,6 +44,58 @@ data class WrappedLine(
     val syllables: List<SyllableLayout>, val totalWidth: Float
 )
 
+@Stable
+data class RowRenderData(
+    val rowLayouts: List<SyllableLayout>,
+    val totalMinX: Float,
+    val totalMaxX: Float,
+    val totalWidth: Float,
+    val firstSyllableStart: Int,
+    val lastSyllableEnd: Int,
+    val layerBounds: Rect
+)
+
+fun calculateRowRenderData(
+    lineLayouts: List<List<SyllableLayout>>,
+    showPhonetic: Boolean,
+    density: Float,
+    edgePaddingDp: Float = 8f
+): List<RowRenderData> {
+    return lineLayouts.mapNotNull { rowLayouts ->
+        if (rowLayouts.isEmpty()) return@mapNotNull null
+
+        val totalMinX = rowLayouts.minOf { it.position.x }
+        val totalMaxX = rowLayouts.maxOf { it.position.x + it.width }
+        val totalWidth = totalMaxX - totalMinX
+        val minY = rowLayouts.minOf { it.position.y }
+        val totalHeight = rowLayouts.maxOf { it.textLayoutResult.size.height }.toFloat()
+        val maxPhoneticHeight = if (showPhonetic) {
+            rowLayouts.maxOfOrNull { it.phoneticLayoutResult?.size?.height ?: 0 }?.toFloat() ?: 0f
+        } else {
+            0f
+        }
+
+        val verticalPadding = (totalHeight * 0.1f) * density
+        val horizontalPadding = ((totalMaxX - totalMinX) * 0.2f) * density
+        val edgePaddingPx = edgePaddingDp * density
+
+        RowRenderData(
+            rowLayouts = rowLayouts,
+            totalMinX = totalMinX,
+            totalMaxX = totalMaxX,
+            totalWidth = totalWidth,
+            firstSyllableStart = rowLayouts.first().syllable.start,
+            lastSyllableEnd = rowLayouts.last().syllable.end,
+            layerBounds = Rect(
+                left = totalMinX - horizontalPadding,
+                top = minY - verticalPadding - maxPhoneticHeight - edgePaddingPx,
+                right = totalMaxX + horizontalPadding,
+                bottom = minY + totalHeight + verticalPadding + edgePaddingPx
+            )
+        )
+    }
+}
+
 fun String.shouldUseSimpleAnimation(): Boolean {
     val cleanedStr = this.filter { !it.isWhitespace() && !it.toString().isPunctuation() }
     if (cleanedStr.isEmpty()) return false

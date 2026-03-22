@@ -59,6 +59,10 @@ import com.mocharealm.accompanist.lyrics.ui.utils.isPunctuation
 import com.mocharealm.accompanist.lyrics.ui.utils.isRtl
 import kotlin.math.roundToInt
 
+private const val FixedSimpleAnimationDurationMs = 700f
+private const val MaxSimpleFloatOffsetY = 4f
+private val SimpleFloatEasing = CubicBezierEasing(0.0f, 0.0f, 0.2f, 1.0f)
+
 /**
  * Creates a horizontal gradient brush that represents the karaoke progress.
  * The gradient moves from inactive color to active color based on the current time.
@@ -68,7 +72,7 @@ import kotlin.math.roundToInt
  * @param isRtl Whether the layout direction is Right-to-Left.
  */
 private fun createLineGradientBrush(
-    lineLayout: List<SyllableLayout>,
+    rowData: RowRenderData,
     currentTimeMs: Int,
     isRtl: Boolean
 ): Brush {
@@ -76,13 +80,10 @@ private fun createLineGradientBrush(
     val inactiveColor = Color.White.copy(alpha = 0.2f)
     val minFadeWidth = 100f
 
-    if (lineLayout.isEmpty()) {
-        return Brush.horizontalGradient(colors = listOf(inactiveColor, inactiveColor))
-    }
-
-    val totalMinX = lineLayout.minOf { it.position.x }
-    val totalMaxX = lineLayout.maxOf { it.position.x + it.width }
-    val totalWidth = totalMaxX - totalMinX
+    val lineLayout = rowData.rowLayouts
+    val totalMinX = rowData.totalMinX
+    val totalMaxX = rowData.totalMaxX
+    val totalWidth = rowData.totalWidth
 
     if (totalWidth <= 0f) {
         val isFinished = currentTimeMs >= lineLayout.last().syllable.end
@@ -90,8 +91,8 @@ private fun createLineGradientBrush(
         return Brush.horizontalGradient(listOf(color, color))
     }
 
-    val firstSyllableStart = lineLayout.first().syllable.start
-    val lastSyllableEnd = lineLayout.last().syllable.end
+    val firstSyllableStart = rowData.firstSyllableStart
+    val lastSyllableEnd = rowData.lastSyllableEnd
 
     val lineProgress = run {
         if (currentTimeMs <= firstSyllableStart) return Brush.horizontalGradient(
@@ -169,7 +170,7 @@ private fun createLineGradientBrush(
  * @param showDebugRectangles Whether to draw debug outlines around glyphs.
  */
 fun DrawScope.drawLyricsLine(
-    lineLayouts: List<List<SyllableLayout>>,
+    rowRenderData: List<RowRenderData>,
     currentTimeMs: Int,
     color: Color,
     blendMode: BlendMode,
@@ -177,40 +178,22 @@ fun DrawScope.drawLyricsLine(
     showDebugRectangles: Boolean = false,
     showPhonetic: Boolean = true
 ) {
-    lineLayouts.forEach { rowLayouts ->
-        if (rowLayouts.isEmpty()) return@forEach
-
-        val lastSyllableEnd = rowLayouts.last().syllable.end
+    rowRenderData.forEach { rowData ->
+        val rowLayouts = rowData.rowLayouts
+        val lastSyllableEnd = rowData.lastSyllableEnd
 
         if (currentTimeMs >= lastSyllableEnd) {
             drawRowText(rowLayouts, color, blendMode, showDebugRectangles, currentTimeMs, showPhonetic)
             return@forEach
         }
 
-        val minX = rowLayouts.minOf { it.position.x }
-        val maxX = rowLayouts.maxOf { it.position.x + it.width }
-        val minY = rowLayouts.minOf { it.position.y }
-        val totalHeight = rowLayouts.maxOf { it.textLayoutResult.size.height }.toFloat()
-
-        val maxPhoneticHeight = if (showPhonetic) {
-            rowLayouts.mapNotNull { it.phoneticLayoutResult?.size?.height }.maxOrNull()?.toFloat() ?: 0f
-        } else 0f
-
-        val verticalPadding = (totalHeight * 0.1).dp.toPx()
-        val horizontalPadding = ((maxX - minX) * 0.2).dp.toPx()
-
         drawIntoCanvas { canvas ->
-            val layerBounds = Rect(
-                left = minX - horizontalPadding,
-                top = minY - verticalPadding - maxPhoneticHeight - 8.dp.toPx(),
-                right = maxX + horizontalPadding,
-                bottom = minY + totalHeight + verticalPadding + 8.dp.toPx()
-            )
+            val layerBounds = rowData.layerBounds
             canvas.saveLayer(layerBounds, LayerPaint)
 
             drawRowText(rowLayouts, color, blendMode, showDebugRectangles, currentTimeMs, showPhonetic)
 
-            val progressBrush = createLineGradientBrush(rowLayouts, currentTimeMs, isRtl)
+            val progressBrush = createLineGradientBrush(rowData, currentTimeMs, isRtl)
             drawRect(
                 brush = progressBrush,
                 topLeft = layerBounds.topLeft,
@@ -242,6 +225,7 @@ private fun DrawScope.drawRowText(
 ) {
     rowLayouts.forEachIndexed { index, syllableLayout ->
         val wordAnimInfo = syllableLayout.wordAnimInfo
+        val phoneticDrawColor = drawColor.copy(alpha = 0.4f)
 
         if (wordAnimInfo != null) {
             val fastCharAnimationThresholdMs = 200f
@@ -253,6 +237,10 @@ private fun DrawScope.drawRowText(
             val numCharsInWord = wordAnimInfo.wordContent.length
             val earliestStartTime = wordAnimInfo.wordStartTime
             val latestStartTime = wordAnimInfo.wordEndTime - awesomeDuration
+            val animationIntensityBase =
+                ((wordAnimInfo.wordDuration - fastCharAnimationThresholdMs * numCharsInWord) / 1000)
+            val dipAndRise = DipAndRise(dip = (0.5 * animationIntensityBase).coerceIn(0.0, 0.5))
+            val swell = Swell((0.1 * animationIntensityBase).coerceIn(0.0, 0.1))
 
             syllableLayout.syllable.content.forEachIndexed { charIndex, _ ->
                 val singleCharLayoutResult =
@@ -269,16 +257,8 @@ private fun DrawScope.drawRowText(
                         0f, 1f
                     )
 
-                val floatOffset = 4f * DipAndRise(
-                    dip = ((0.5 * (wordAnimInfo.wordDuration - fastCharAnimationThresholdMs * numCharsInWord) / 1000)).coerceIn(
-                        0.0, 0.5
-                    )
-                ).transform(1.0f - awesomeProgress)
-                val scale = 1f + Swell(
-                    (0.1 * (wordAnimInfo.wordDuration - fastCharAnimationThresholdMs * numCharsInWord) / 1000).coerceIn(
-                        0.0, 0.1
-                    )
-                ).transform(awesomeProgress)
+                val floatOffset = 4f * dipAndRise.transform(1.0f - awesomeProgress)
+                val scale = 1f + swell.transform(awesomeProgress)
 
                 val centeredOffsetX = (charBox.width - singleCharLayoutResult.size.width) / 2f
                 val xPos = syllableLayout.position.x + charBox.left + centeredOffsetX
@@ -320,16 +300,8 @@ private fun DrawScope.drawRowText(
                             0f, 1f
                         )
 
-                    val floatOffset = 4f * DipAndRise(
-                        dip = ((0.5 * (wordAnimInfo.wordDuration - fastCharAnimationThresholdMs * numCharsInWord) / 1000)).coerceIn(
-                            0.0, 0.5
-                        )
-                    ).transform(1.0f - awesomeProgress)
-                    val scale = 1f + Swell(
-                        (0.1 * (wordAnimInfo.wordDuration - fastCharAnimationThresholdMs * numCharsInWord) / 1000).coerceIn(
-                            0.0, 0.1
-                        )
-                    ).transform(awesomeProgress)
+                    val floatOffset = 4f * dipAndRise.transform(1.0f - awesomeProgress)
+                    val scale = 1f + swell.transform(awesomeProgress)
 
                     val phoneticX = syllableLayout.position.x
                     val phoneticY =
@@ -338,7 +310,7 @@ private fun DrawScope.drawRowText(
                     withTransform({ scale(scale = scale, pivot = syllableLayout.wordPivot) }) {
                         drawText(
                             textLayoutResult = phoneticLayout,
-                            color = drawColor.copy(alpha = 0.4f),
+                            color = phoneticDrawColor,
                             topLeft = Offset(phoneticX, phoneticY)
                         )
                     }
@@ -359,14 +331,11 @@ private fun DrawScope.drawRowText(
                 syllableLayout
             }
 
-            val animationFixedDuration = 700f
             val timeSinceStart = currentTimeMs - driverLayout.syllable.start
-            val animationProgress = (timeSinceStart / animationFixedDuration).coerceIn(0f, 1f)
+            val animationProgress = (timeSinceStart / FixedSimpleAnimationDurationMs).coerceIn(0f, 1f)
 
-            val maxOffsetY = 4f
-            val floatCurveValue =
-                CubicBezierEasing(0.0f, 0.0f, 0.2f, 1.0f).transform(1f - animationProgress)
-            val floatOffset = maxOffsetY * floatCurveValue
+            val floatCurveValue = SimpleFloatEasing.transform(1f - animationProgress)
+            val floatOffset = MaxSimpleFloatOffsetY * floatCurveValue
 
             val finalPosition = syllableLayout.position.copy(
                 y = syllableLayout.position.y + floatOffset
@@ -384,7 +353,7 @@ private fun DrawScope.drawRowText(
                     val phoneticY = finalPosition.y - phoneticLayout.size.height + 4.dp.toPx()
                     drawText(
                         textLayoutResult = phoneticLayout,
-                        color = drawColor.copy(alpha = 0.4f),
+                        color = phoneticDrawColor,
                         topLeft = Offset(phoneticX, phoneticY),
                     )
                 }
@@ -405,7 +374,7 @@ private fun DrawScope.drawRowText(
 /**
  * Renders a single karaoke line, capable of handling multi-row wrapping.
  *
- * This composable pre-calculates the text layout using [NativeTextEngine] and then
+ * This composable pre-calculates the text layout and then
  * renders the frames using an efficient Canvas drawing strategy. It handles:
  * - Text measurement and line breaking
  * - Syllable and character-level animations (bounce, rise, swell)
@@ -605,6 +574,14 @@ fun KaraokeLineText(
                 )
             }
 
+            val rowRenderData = remember(finalLineLayouts, showPhonetic, density) {
+                calculateRowRenderData(
+                    lineLayouts = finalLineLayouts,
+                    showPhonetic = showPhonetic,
+                    density = density.density
+                )
+            }
+
             val hasPhonetics = remember(initialLayouts, showPhonetic) {
                 showPhonetic && initialLayouts.any { it.phoneticLayoutResult != null }
             }
@@ -620,7 +597,7 @@ fun KaraokeLineText(
             Canvas(modifier = Modifier.size(maxWidth, (totalHeight.roundToInt() + 8).toDp())) {
                 val time = currentTimeProvider()
                 drawLyricsLine(
-                    lineLayouts = finalLineLayouts,
+                    rowRenderData = rowRenderData,
                     currentTimeMs = time,
                     color = activeColor,
                     blendMode = blendMode,
