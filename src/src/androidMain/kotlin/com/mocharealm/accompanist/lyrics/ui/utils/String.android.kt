@@ -2,8 +2,8 @@ package com.mocharealm.accompanist.lyrics.ui.utils
 
 import android.os.Build
 
-actual fun Char.isCjk(): Boolean {
-    val cjkBlock = mutableListOf(
+private val cjkBlocks: Set<Character.UnicodeBlock> by lazy {
+    mutableSetOf(
         Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS,
         Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A,
         Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_B,
@@ -16,39 +16,47 @@ actual fun Char.isCjk(): Boolean {
         Character.UnicodeBlock.HANGUL_SYLLABLES,
         Character.UnicodeBlock.HANGUL_JAMO,
         Character.UnicodeBlock.HANGUL_COMPATIBILITY_JAMO
-    )
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-        cjkBlock.add(Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_E)
-        cjkBlock.add(Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_F)
-        cjkBlock.add(Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_G)
+    ).apply {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            add(Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_E)
+            add(Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_F)
+            add(Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_G)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
+            add(Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_H)
+        }
     }
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
-        cjkBlock.add(Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_H)
-    }
-    return Character.UnicodeBlock.of(this) in cjkBlock
 }
 
-actual fun Char.isArabic(): Boolean {
-    val arabicBlock = mutableListOf(
+private val arabicBlocks: Set<Character.UnicodeBlock> by lazy {
+    mutableSetOf(
         Character.UnicodeBlock.ARABIC,
         Character.UnicodeBlock.ARABIC_SUPPLEMENT,
         Character.UnicodeBlock.ARABIC_EXTENDED_A,
         Character.UnicodeBlock.ARABIC_PRESENTATION_FORMS_A,
         Character.UnicodeBlock.ARABIC_PRESENTATION_FORMS_B
-    )
-
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
-        arabicBlock.add(Character.UnicodeBlock.ARABIC_EXTENDED_B)
+    ).apply {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
+            add(Character.UnicodeBlock.ARABIC_EXTENDED_B)
+        }
     }
-
-    return Character.UnicodeBlock.of(this) in arabicBlock
 }
 
-actual fun Char.isDevanagari(): Boolean {
-    val devanagariBlock = listOf(
+private val devanagariBlocks: Set<Character.UnicodeBlock> by lazy {
+    setOf(
         Character.UnicodeBlock.DEVANAGARI,
         Character.UnicodeBlock.DEVANAGARI_EXTENDED
     )
+}
 
-    return Character.UnicodeBlock.of(this) in devanagariBlock
+actual fun Char.isCjk(): Boolean {
+    return Character.UnicodeBlock.of(this) in cjkBlocks
+}
+
+actual fun Char.isArabic(): Boolean {
+    return Character.UnicodeBlock.of(this) in arabicBlocks
+}
+
+actual fun Char.isDevanagari(): Boolean {
+    return Character.UnicodeBlock.of(this) in devanagariBlocks
 }
