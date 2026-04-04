@@ -60,6 +60,13 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlin.math.absoluteValue
 
+internal data class FocusState(
+    val firstIndex: Int,
+    val allIndices: List<Int>,
+    val activeInterludeIndex: Int?,
+    val activeIntro: Boolean
+)
+
 /**
  * A comprehensive lyrics view that supports Karaoke and Synced lyrics with advanced rendering.
  *
@@ -238,28 +245,6 @@ fun KaraokeLyricsView(
         }
     }
 
-    fun getCurrentAllHighlightLineIndicesByTimeLocally(time: Int): List<Int> {
-        return lyrics.lines.indices.filter { index ->
-            time >= lyrics.lines[index].start && time < effectiveEndTimes[index]
-        }
-    }
-
-    val firstFocusedLineIndex by remember(lyrics.lines, effectiveEndTimes) {
-        derivedStateOf {
-            val time = currentTimeMs()
-            val activeIndex = lyrics.lines.indices.find { idx ->
-                time >= lyrics.lines[idx].start && time < effectiveEndTimes[idx]
-            }
-
-            if (activeIndex != null) {
-                activeIndex
-            } else {
-                val nextIdx = lyrics.lines.indexOfFirst { it.start > time }
-                if (nextIdx != -1) nextIdx else lyrics.lines.lastIndex
-            }
-        }
-    }
-
     val firstLine = lyrics.lines.firstOrNull()
 
     val haveDotsIntro by remember(firstLine) {
@@ -269,9 +254,23 @@ fun KaraokeLyricsView(
         }
     }
 
-    val allFocusedLineIndex by remember(lyrics, accompanimentToMainMap) {
+    val lyricsFocusState by remember(lyrics, effectiveEndTimes, accompanimentToMainMap, haveDotsIntro) {
         derivedStateOf {
-            val base = getCurrentAllHighlightLineIndicesByTimeLocally(currentTimeMs())
+            val time = currentTimeMs()
+            val activeIndex = lyrics.lines.indices.find { idx ->
+                time >= lyrics.lines[idx].start && time < effectiveEndTimes[idx]
+            }
+
+            val first = if (activeIndex != null) {
+                activeIndex
+            } else {
+                val nextIdx = lyrics.lines.indexOfFirst { it.start > time }
+                if (nextIdx != -1) nextIdx else lyrics.lines.lastIndex
+            }
+
+            val base = lyrics.lines.indices.filter { index ->
+                time >= lyrics.lines[index].start && time < effectiveEndTimes[index]
+            }
             val result = base.toMutableSet()
             base.forEach { index ->
                 val line = lyrics.lines.getOrNull(index)
@@ -279,7 +278,15 @@ fun KaraokeLyricsView(
                     accompanimentToMainMap[index]?.let { result.add(it) }
                 }
             }
-            result.toList().sorted()
+
+            val activeInterludeIndex = lyrics.lines.indices.find { index ->
+                val line = lyrics.lines[index]
+                val previousLine = lyrics.lines.getOrNull(index - 1)
+                previousLine != null && (line.start - previousLine.end > 5000) && time in previousLine.end..line.start
+            }
+            val activeIntro = haveDotsIntro && time in 0 until (firstLine?.start ?: 0)
+
+            FocusState(first, result.toList().sorted(), activeInterludeIndex, activeIntro)
         }
     }
 
@@ -292,30 +299,32 @@ fun KaraokeLyricsView(
     }
 
     LaunchedEffect(
-        firstFocusedLineIndex,
         layoutCache,
         stableOffsetPx,
     ) {
-        if (!scrollInCode.value) {
-            val items = listState.layoutInfo.visibleItemsInfo
-            val targetItem = items.firstOrNull { it.index == firstFocusedLineIndex }
-            val scrollOffset =
-                (targetItem?.offset?.minus(listState.layoutInfo.viewportStartOffset + stableOffsetPx + keepAliveZonePx))
-            try {
-                scrollInCode.value = true
-                if (scrollOffset != null) {
-                    listState.scrollBy(scrollOffset)
-                } else {
-                    listState.animateScrollToItem(
-                        firstFocusedLineIndex,
-                        (-stableOffsetPx - keepAliveZonePx).toInt()
-                    )
+        androidx.compose.runtime.snapshotFlow { lyricsFocusState.firstIndex }
+            .collect { firstIndex ->
+                if (!scrollInCode.value) {
+                    val items = listState.layoutInfo.visibleItemsInfo
+                    val targetItem = items.firstOrNull { it.index == firstIndex }
+                    val scrollOffset =
+                        (targetItem?.offset?.minus(listState.layoutInfo.viewportStartOffset + stableOffsetPx + keepAliveZonePx))
+                    try {
+                        scrollInCode.value = true
+                        if (scrollOffset != null) {
+                            listState.scrollBy(scrollOffset.toFloat())
+                        } else {
+                            listState.animateScrollToItem(
+                                firstIndex,
+                                (-stableOffsetPx - keepAliveZonePx).toInt()
+                            )
+                        }
+                    } catch (_: Exception) {
+                    } finally {
+                        scrollInCode.value = false
+                    }
                 }
-            } catch (_: Exception) {
-            } finally {
-                scrollInCode.value = false
             }
-        }
     }
     LookaheadScope {
         Crossfade(lyrics) { lyrics ->
@@ -362,7 +371,7 @@ fun KaraokeLyricsView(
                         items = lyrics.lines,
                         key = { index, line -> "${line.start}-${line.end}-$index" }
                     ) { index, line ->
-                        val isCurrentFocusLine by rememberUpdatedState(index in allFocusedLineIndex)
+                        val isCurrentFocusLine = index in lyricsFocusState.allIndices
                         val isLineRtl =
                             when (line) {
                                 is KaraokeLine -> {
@@ -382,25 +391,14 @@ fun KaraokeLyricsView(
                             if (isLineRightAligned) !isLineRtl
                             else isLineRtl
                         }
-                        val nextPendingLineIndex by remember(lyrics, currentTimeMs()) {
+
+                        val distanceWeightState = remember(useBlurEffect, lyricsFocusState) {
                             derivedStateOf {
-                                val time = currentTimeMs()
-                                val index = lyrics.lines.indexOfFirst { it.start > time }
-                                if (index == -1) lyrics.lines.size - 1 else index
+                                val start = lyricsFocusState.allIndices.firstOrNull() ?: lyricsFocusState.firstIndex
+                                val end = lyricsFocusState.allIndices.lastOrNull() ?: lyricsFocusState.firstIndex
+                                maxOf(0, start - index, index - end)
                             }
                         }
-
-                        val distanceWeightState =
-                            remember(useBlurEffect, allFocusedLineIndex, nextPendingLineIndex) {
-                                derivedStateOf {
-                                    val start =
-                                        allFocusedLineIndex.firstOrNull() ?: nextPendingLineIndex
-                                    val end =
-                                        allFocusedLineIndex.lastOrNull() ?: nextPendingLineIndex
-
-                                    maxOf(0, start - index, index - end)
-                                }
-                            }
 
                         val dynamicStiffness by remember(distanceWeightState.value) {
                             derivedStateOf {
@@ -423,17 +421,8 @@ fun KaraokeLyricsView(
 
                             val previousLine = lyrics.lines.getOrNull(index - 1)
 
-                            val showDotsInterlude by remember(line, previousLine) {
-                                derivedStateOf {
-                                    val currentTime = currentPosition()
-                                    (previousLine != null && (line.start - previousLine.end > 5000) && (currentTime in previousLine.end..line.start))
-                                }
-                            }
-                            val showDotsIntro by remember(firstLine) {
-                                derivedStateOf {
-                                    haveDotsIntro && (currentTimeMs() in 0 until firstLine!!.start) && index == 0
-                                }
-                            }
+                            val showDotsInterlude = lyricsFocusState.activeInterludeIndex == index
+                            val showDotsIntro = lyricsFocusState.activeIntro && index == 0
 
                             AnimatedVisibility(showDotsInterlude || showDotsIntro) {
                                 KaraokeBreathingDots(

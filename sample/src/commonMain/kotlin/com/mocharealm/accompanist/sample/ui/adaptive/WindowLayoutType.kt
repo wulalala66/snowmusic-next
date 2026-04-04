@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -36,10 +37,12 @@ fun AdaptiveLayoutProvider(
     content: @Composable () -> Unit
 ) {
     BoxWithConstraints {
-        val layoutType = when {
-            maxWidth < WindowBreakpoints.Tablet -> WindowLayoutType.Phone
-            maxWidth < WindowBreakpoints.Desktop -> WindowLayoutType.Tablet
-            else -> WindowLayoutType.Desktop
+        val layoutType = remember(maxWidth) {
+            when {
+                maxWidth < WindowBreakpoints.Tablet -> WindowLayoutType.Phone
+                maxWidth < WindowBreakpoints.Desktop -> WindowLayoutType.Tablet
+                else -> WindowLayoutType.Desktop
+            }
         }
         CompositionLocalProvider(LocalWindowLayoutType provides layoutType) {
             content()

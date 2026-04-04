@@ -40,6 +40,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -74,6 +75,7 @@ import com.mocharealm.accompanist.sample.ic_ellipsis
 import com.mocharealm.accompanist.sample.ui.adaptive.LocalWindowLayoutType
 import com.mocharealm.accompanist.sample.ui.adaptive.WindowLayoutType
 import com.mocharealm.accompanist.sample.ui.composable.ModalScaffold
+import com.mocharealm.accompanist.sample.ui.composable.background.BackgroundVisualState
 import com.mocharealm.accompanist.sample.ui.composable.background.FlowingLightBackground
 import com.mocharealm.accompanist.sample.ui.screen.share.ShareContext
 import com.mocharealm.accompanist.sample.ui.screen.share.ShareScreen
@@ -98,18 +100,22 @@ fun PlayerScreen(
 
     // 2. 创建一个稳定的 Provider Lambda，它只会在真正被调用时读取 State
     val currentPositionProvider = remember {
-        { animatedPositionState.longValue.toInt() }
+        { 
+            // 只有当 KaraokeLyricsView 内部调用此 Lambda 时，才会发生读取
+            animatedPositionState.longValue.toInt() 
+        }
     }
 
-    val uiState by playerViewModel.uiState.collectAsState()
-    val latestPlaybackState by rememberUpdatedState(uiState.playbackState)
+    val uiStateState = playerViewModel.uiState.collectAsState()
+    val isPlaying by remember { derivedStateOf { uiStateState.value.playbackState.isPlaying } }
 
-    LaunchedEffect(latestPlaybackState.isPlaying) {
-        if (latestPlaybackState.isPlaying) {
+    LaunchedEffect(isPlaying) {
+        if (isPlaying) {
             while (true) {
-                val elapsed = System.currentTimeMillis() - latestPlaybackState.lastUpdateTime
-                val newPosition = (latestPlaybackState.position + elapsed).coerceAtMost(
-                    latestPlaybackState.duration
+                val playbackState = uiStateState.value.playbackState
+                val elapsed = System.currentTimeMillis() - playbackState.lastUpdateTime
+                val newPosition = (playbackState.position + elapsed).coerceAtMost(
+                    playbackState.duration
                 )
 
                 // 读取当前值用于比较
@@ -123,13 +129,14 @@ fun PlayerScreen(
                 awaitFrame()
             }
         } else {
-            animatedPositionState.longValue = latestPlaybackState.position
+            animatedPositionState.longValue = uiStateState.value.playbackState.position
         }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        val isShareSheetVisible by remember { derivedStateOf { uiStateState.value.isShareSheetVisible } }
         ModalScaffold(
-            isModalOpen = uiState.isShareSheetVisible,
+            isModalOpen = isShareSheetVisible,
             modifier = Modifier.fillMaxSize(),
             onDismissRequest = {
                 playerViewModel.onShareDismissed()
@@ -139,36 +146,58 @@ fun PlayerScreen(
                 ShareScreen(it, shareViewModel = shareViewModel)
             }
         ) {
+            val backgroundState by remember { derivedStateOf { uiStateState.value.backgroundState } }
             FlowingLightBackground(
-                state = uiState.backgroundState,
+                state = backgroundState,
                 modifier = Modifier.fillMaxSize()
             )
 
-            when (LocalWindowLayoutType.current) {
+            val layoutType = LocalWindowLayoutType.current
+            when (layoutType) {
                 WindowLayoutType.Phone -> {
+                    val currentMusicItem by remember { derivedStateOf { uiStateState.value.currentMusicItem } }
+                    val showTranslation by remember { derivedStateOf { uiStateState.value.showTranslation } }
+                    val showPhonetic by remember { derivedStateOf { uiStateState.value.showPhonetic } }
+                    val lyrics by remember { derivedStateOf { uiStateState.value.lyrics } }
+                    
                     MobilePlayerScreen(
-                        listState,
-                        currentPositionProvider, // 3. 传入 Provider
-                        playerViewModel,
-                        shareViewModel,
-                        uiState
+                        listState = listState,
+                        animatedPosition = currentPositionProvider,
+                        playerViewModel = playerViewModel,
+                        shareViewModel = shareViewModel,
+                        backgroundState = backgroundState,
+                        currentMusicItem = currentMusicItem,
+                        showTranslation = showTranslation,
+                        showPhonetic = showPhonetic,
+                        lyrics = lyrics
                     )
                 }
 
                 else -> {
+                    val currentMusicItem by remember { derivedStateOf { uiStateState.value.currentMusicItem } }
+                    val showTranslation by remember { derivedStateOf { uiStateState.value.showTranslation } }
+                    val showPhonetic by remember { derivedStateOf { uiStateState.value.showPhonetic } }
+                    val lyrics by remember { derivedStateOf { uiStateState.value.lyrics } }
+
                     PadPlayerScreen(
-                        listState,
-                        currentPositionProvider, // 3. 传入 Provider
-                        playerViewModel,
-                        shareViewModel,
-                        uiState
+                        listState = listState,
+                        animatedPosition = currentPositionProvider,
+                        playerViewModel = playerViewModel,
+                        shareViewModel = shareViewModel,
+                        backgroundState = backgroundState,
+                        currentMusicItem = currentMusicItem,
+                        showTranslation = showTranslation,
+                        showPhonetic = showPhonetic,
+                        lyrics = lyrics
                     )
                 }
             }
 
-            if (uiState.showSelectionDialog) {
+            val showSelectionDialog by remember { derivedStateOf { uiStateState.value.showSelectionDialog } }
+            if (showSelectionDialog) {
+                val availableSongs by remember { derivedStateOf { uiStateState.value.availableSongs } }
                 MusicItemSelectionDialog(
-                    items = uiState.availableSongs,
+                    items = availableSongs,
                     onItemSelected = { item ->
                         playerViewModel.onSongSelected(item)
                     },
@@ -185,7 +214,11 @@ fun MobilePlayerScreen(
     animatedPosition: ()-> Int,
     playerViewModel: PlayerViewModel,
     shareViewModel: ShareViewModel,
-    uiState: PlayerUiState
+    backgroundState: BackgroundVisualState,
+    currentMusicItem: MusicItem?,
+    showTranslation: Boolean,
+    showPhonetic: Boolean,
+    lyrics: SyncedLyrics?
 ) {
     Column {
         Row(
@@ -203,7 +236,7 @@ fun MobilePlayerScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                uiState.backgroundState.bitmap?.let { bitmap ->
+                backgroundState.bitmap?.let { bitmap ->
                     Image(
                         bitmap,
                         null,
@@ -218,39 +251,39 @@ fun MobilePlayerScreen(
                     )
                 }
                 PlayerMetadata(
-                    uiState.currentMusicItem?.label ?: "Unknown Title",
-                    uiState.currentMusicItem?.testTarget?.split(" [")?.get(0)
+                    currentMusicItem?.label ?: "Unknown Title",
+                    currentMusicItem?.testTarget?.split(" [")?.get(0)
                         ?: "Unknown"
                 )
             }
             Spacer(Modifier.width(8.dp))
             PlayerControls(
                 onOpenSongSelection = { playerViewModel.onOpenSongSelection() },
-                showTranslation = uiState.showTranslation,
-                showPhonetic = uiState.showPhonetic,
+                showTranslation = showTranslation,
+                showPhonetic = showPhonetic,
                 onToggleTranslation = { playerViewModel.toggleTranslation() },
                 onTogglePhonetic = { playerViewModel.togglePhonetic() }
             )
         }
 
         val cover =
-            (uiState.backgroundState.bitmap ?: imageResource(Res.drawable.empty)).asAndroidBitmap()
+            (backgroundState.bitmap ?: imageResource(Res.drawable.empty)).asAndroidBitmap()
         PlayerLyrics(
             listState = listState,
-            lyrics = uiState.lyrics,
+            lyrics = lyrics,
             currentPosition = animatedPosition,
-            showTranslation = uiState.showTranslation,
-            showPhonetic = uiState.showPhonetic,
+            showTranslation = showTranslation,
+            showPhonetic = showPhonetic,
             onSeekTo = { playerViewModel.seekTo(it) },
             onShare = { line ->
-                uiState.lyrics?.let { lyrics ->
+                lyrics?.let { lyrics ->
                     playerViewModel.onShareRequested()
                     val context = ShareContext(
                         lyrics = lyrics,
                         initialLine = line,
-                        backgroundState = uiState.backgroundState,
-                        title = uiState.currentMusicItem?.label ?: "Unknown Title",
-                        artist = uiState.currentMusicItem?.testTarget?.split(" [")?.get(0)
+                        backgroundState = backgroundState,
+                        title = currentMusicItem?.label ?: "Unknown Title",
+                        artist = currentMusicItem?.testTarget?.split(" [")?.get(0)
                             ?: "Unknown",
                         cover = cover
                     )
@@ -269,7 +302,11 @@ fun PadPlayerScreen(
     animatedPosition: ()-> Int,
     playerViewModel: PlayerViewModel,
     shareViewModel: ShareViewModel,
-    uiState: PlayerUiState
+    backgroundState: BackgroundVisualState,
+    currentMusicItem: MusicItem?,
+    showTranslation: Boolean,
+    showPhonetic: Boolean,
+    lyrics: SyncedLyrics?
 ) {
     Row(
         Modifier
@@ -289,7 +326,7 @@ fun PadPlayerScreen(
                 .padding(top = 28.dp)
         ) {
             Image(
-                uiState.backgroundState.bitmap ?: imageResource(Res.drawable.empty),
+                backgroundState.bitmap ?: imageResource(Res.drawable.empty),
                 null,
                 Modifier
 //                        .dropShadow(ContinuousRoundedRectangle(12.dp)) {
@@ -318,40 +355,40 @@ fun PadPlayerScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 PlayerMetadata(
-                    uiState.currentMusicItem?.label ?: "Unknown Title",
-                    uiState.currentMusicItem?.testTarget?.split(" [")?.get(0)
+                    currentMusicItem?.label ?: "Unknown Title",
+                    currentMusicItem?.testTarget?.split(" [")?.get(0)
                         ?: "Unknown"
                 )
                 PlayerControls(
                     onOpenSongSelection = { playerViewModel.onOpenSongSelection() },
-                    showTranslation = uiState.showTranslation,
-                    showPhonetic = uiState.showPhonetic,
+                    showTranslation = showTranslation,
+                    showPhonetic = showPhonetic,
                     onToggleTranslation = { playerViewModel.toggleTranslation() },
                     onTogglePhonetic = { playerViewModel.togglePhonetic() }
                 )
             }
 
         }
-        AnimatedVisibility(uiState.lyrics != null) {
+        AnimatedVisibility(lyrics != null) {
             val cover =
-                (uiState.backgroundState.bitmap
+                (backgroundState.bitmap
                     ?: imageResource(Res.drawable.empty)).asAndroidBitmap()
             PlayerLyrics(
                 listState = listState,
-                lyrics = uiState.lyrics,
+                lyrics = lyrics,
                 currentPosition = animatedPosition,
-                showTranslation = uiState.showTranslation,
-                showPhonetic = uiState.showPhonetic,
+                showTranslation = showTranslation,
+                showPhonetic = showPhonetic,
                 onSeekTo = { playerViewModel.seekTo(it) },
                 onShare = { line ->
-                    uiState.lyrics?.let { lyrics ->
+                    lyrics?.let { lyrics ->
                         playerViewModel.onShareRequested()
                         val context = ShareContext(
                             lyrics = lyrics,
                             initialLine = line,
-                            backgroundState = uiState.backgroundState,
-                            title = uiState.currentMusicItem?.label ?: "Unknown Title",
-                            artist = uiState.currentMusicItem?.testTarget?.split(" [")?.get(0)
+                            backgroundState = backgroundState,
+                            title = currentMusicItem?.label ?: "Unknown Title",
+                            artist = currentMusicItem?.testTarget?.split(" [")?.get(0)
                                 ?: "Unknown",
                             cover = cover
                         )
@@ -646,6 +683,26 @@ fun PlayerLyrics(
 ) {
     if (lyrics == null) return
 
+    val currentTextStyle = LocalTextStyle.current
+    val sf = SFPro()
+    val normalStyle = remember(currentTextStyle) {
+        currentTextStyle.copy(
+            fontSize = 34.sp,
+            fontFamily = sf,
+            fontWeight = FontWeight.Bold,
+            textMotion = TextMotion.Animated,
+        )
+    }
+    
+    val accompanimentStyle = remember(currentTextStyle) {
+        currentTextStyle.copy(
+            fontSize = 20.sp,
+            fontFamily = sf,
+            fontWeight = FontWeight.Bold,
+            textMotion = TextMotion.Animated,
+        )
+    }
+
     KaraokeLyricsView(
         listState = listState,
         lyrics = lyrics,
@@ -654,21 +711,12 @@ fun PlayerLyrics(
         onLinePressed = { line -> onShare(line as KaraokeLine) },
         showTranslation = showTranslation,
         showPhonetic = showPhonetic,
-        normalLineTextStyle = LocalTextStyle.current.copy(
-            fontSize = 34.sp,
-            fontFamily = SFPro(),
-            fontWeight = FontWeight.Bold,
-            textMotion = TextMotion.Animated,
-        ),
-        accompanimentLineTextStyle = LocalTextStyle.current.copy(
-            fontSize = 20.sp,
-            fontFamily = SFPro(),
-            fontWeight = FontWeight.Bold,
-            textMotion = TextMotion.Animated,
-        ),
+        normalLineTextStyle = normalStyle,
+        accompanimentLineTextStyle = accompanimentStyle,
         modifier = modifier.graphicsLayer {
             blendMode = BlendMode.Plus
             compositingStrategy = CompositingStrategy.Offscreen
         },
+        useBlurEffect = false
     )
 }
