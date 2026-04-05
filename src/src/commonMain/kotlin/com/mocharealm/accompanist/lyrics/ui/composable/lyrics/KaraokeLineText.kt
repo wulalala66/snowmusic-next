@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -87,7 +88,7 @@ private fun createLineGradientBrush(
     if (totalWidth <= 0f) {
         val isFinished = currentTimeMs >= lineLayout.last().syllable.end
         val color = if (isFinished) activeColor else inactiveColor
-        return Brush.horizontalGradient(listOf(color, color))
+        return SolidColor(color)
     }
 
     val firstSyllableStart = rowData.firstSyllableStart
