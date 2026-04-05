@@ -25,7 +25,7 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.auto(
                 Color.Transparent.toArgb(), Color.Transparent.toArgb()
             ),
-            statusBarStyle = SystemBarStyle.dark(Color.White.toArgb())
+            statusBarStyle = SystemBarStyle.dark(Color.Transparent.toArgb())
         )
         // FUCKING XIAOMI
         @Suppress("DEPRECATION") if (Build.MANUFACTURER == "Xiaomi") {
