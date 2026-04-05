@@ -45,6 +45,8 @@ kotlin {
         }
 
         androidMain.dependencies {
+            implementation(fileTree("dir" to "src/androidMain/libs", "include" to listOf("*.aar")))
+
             implementation(libs.androidx.activity.compose)
             implementation(libs.androidx.core.ktx)
             implementation(libs.androidx.lifecycle.runtime.ktx)

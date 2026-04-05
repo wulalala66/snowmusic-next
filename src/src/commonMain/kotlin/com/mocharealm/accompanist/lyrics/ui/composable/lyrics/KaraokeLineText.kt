@@ -27,7 +27,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
@@ -183,7 +182,14 @@ fun DrawScope.drawLyricsLine(
         val lastSyllableEnd = rowData.lastSyllableEnd
 
         if (currentTimeMs >= lastSyllableEnd) {
-            drawRowText(rowLayouts, color, blendMode, showDebugRectangles, currentTimeMs, showPhonetic)
+            drawRowText(
+                rowLayouts,
+                color,
+                blendMode,
+                showDebugRectangles,
+                currentTimeMs,
+                showPhonetic
+            )
             return@forEach
         }
 
@@ -191,7 +197,14 @@ fun DrawScope.drawLyricsLine(
             val layerBounds = rowData.layerBounds
             canvas.saveLayer(layerBounds, LayerPaint)
 
-            drawRowText(rowLayouts, color, blendMode, showDebugRectangles, currentTimeMs, showPhonetic)
+            drawRowText(
+                rowLayouts,
+                color,
+                blendMode,
+                showDebugRectangles,
+                currentTimeMs,
+                showPhonetic
+            )
 
             val progressBrush = createLineGradientBrush(rowData, currentTimeMs, isRtl)
             drawRect(
@@ -332,7 +345,8 @@ private fun DrawScope.drawRowText(
             }
 
             val timeSinceStart = currentTimeMs - driverLayout.syllable.start
-            val animationProgress = (timeSinceStart / FixedSimpleAnimationDurationMs).coerceIn(0f, 1f)
+            val animationProgress =
+                (timeSinceStart / FixedSimpleAnimationDurationMs).coerceIn(0f, 1f)
 
             val floatCurveValue = SimpleFloatEasing.transform(1f - animationProgress)
             val floatOffset = MaxSimpleFloatOffsetY * floatCurveValue
@@ -456,7 +470,7 @@ fun KaraokeLineText(
                     tween(
                         600
                     )
-                ) + expandVertically(tween(600)),
+                ) + expandVertically(tween(600), if (isBefore) Alignment.Top else Alignment.Bottom),
                 exit = scaleOut(
                     tween(600), transformOrigin = TransformOrigin(
                         if (isRightAligned) 1f else 0f, if (isBefore) 1f else 0f
@@ -465,7 +479,7 @@ fun KaraokeLineText(
                     tween(
                         600
                     )
-                ) + shrinkVertically(tween(600)),
+                ) + shrinkVertically(tween(600), if (isBefore) Alignment.Top else Alignment.Bottom),
             ) {
                 LyricsLineItem(
                     isFocused = true,
@@ -504,7 +518,6 @@ fun KaraokeLineText(
         horizontalAlignment = columnHorizontalAlignment
     ) {
         AccompanimentLines(true, accompanimentLinesBeforeMain)
-
 
         BoxWithConstraints {
             val density = LocalDensity.current
