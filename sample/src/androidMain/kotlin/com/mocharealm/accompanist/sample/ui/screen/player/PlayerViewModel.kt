@@ -39,6 +39,12 @@ data class PlaybackState(
     val lastUpdateTime: Long = 0L
 )
 
+enum class PlayMode {
+    SEQUENTIAL,
+    SINGLE_LOOP,
+    SHUFFLE
+}
+
 data class PlayerUiState(
     val isReady: Boolean = false,
     val showSelectionDialog: Boolean = true,
@@ -49,7 +55,9 @@ data class PlayerUiState(
     val currentMusicItem: MusicItem? = null,
     val isShareSheetVisible: Boolean = false,
     val showTranslation: Boolean = true,
-    val showPhonetic: Boolean = true
+    val showPhonetic: Boolean = true,
+    val playMode: PlayMode = PlayMode.SEQUENTIAL,
+    val showPlaylistDialog: Boolean = false
 )
 
 class PlayerViewModel(
@@ -201,7 +209,7 @@ class PlayerViewModel(
         val controller = mediaController ?: return
         updateState { it.copy(showSelectionDialog = false, currentMusicItem = item) }
         controller.setMediaItem(item.mediaItem)
-        controller.repeatMode = Player.REPEAT_MODE_ALL
+        applyPlayMode(uiState.value.playMode)
         controller.prepare()
         controller.play()
         loadLyricsFor(item)
@@ -258,6 +266,69 @@ class PlayerViewModel(
             controller.pause()
         } else {
             controller.play()
+        }
+    }
+
+    fun playPrevious() {
+        val songs = uiState.value.availableSongs
+        val current = uiState.value.currentMusicItem ?: return
+        if (songs.isEmpty()) return
+        val currentIndex = songs.indexOfFirst { it.label == current.label && it.testTarget == current.testTarget }
+        if (currentIndex == -1) return
+        val targetIndex = when (uiState.value.playMode) {
+            PlayMode.SHUFFLE -> songs.indices.random()
+            else -> if (currentIndex == 0) songs.lastIndex else currentIndex - 1
+        }
+        onSongSelected(songs[targetIndex])
+    }
+
+    fun playNext() {
+        val songs = uiState.value.availableSongs
+        val current = uiState.value.currentMusicItem ?: return
+        if (songs.isEmpty()) return
+        val currentIndex = songs.indexOfFirst { it.label == current.label && it.testTarget == current.testTarget }
+        if (currentIndex == -1) return
+        val targetIndex = when (uiState.value.playMode) {
+            PlayMode.SINGLE_LOOP -> currentIndex
+            PlayMode.SHUFFLE -> songs.indices.random()
+            PlayMode.SEQUENTIAL -> if (currentIndex == songs.lastIndex) 0 else currentIndex + 1
+        }
+        onSongSelected(songs[targetIndex])
+    }
+
+    fun cyclePlayMode() {
+        val nextMode = when (uiState.value.playMode) {
+            PlayMode.SEQUENTIAL -> PlayMode.SINGLE_LOOP
+            PlayMode.SINGLE_LOOP -> PlayMode.SHUFFLE
+            PlayMode.SHUFFLE -> PlayMode.SEQUENTIAL
+        }
+        applyPlayMode(nextMode)
+        updateState { it.copy(playMode = nextMode) }
+    }
+
+    fun showPlaylistDialog() {
+        updateState { it.copy(showPlaylistDialog = true) }
+    }
+
+    fun dismissPlaylistDialog() {
+        updateState { it.copy(showPlaylistDialog = false) }
+    }
+
+    private fun applyPlayMode(mode: PlayMode) {
+        val controller = mediaController ?: return
+        when (mode) {
+            PlayMode.SEQUENTIAL -> {
+                controller.shuffleModeEnabled = false
+                controller.repeatMode = Player.REPEAT_MODE_ALL
+            }
+            PlayMode.SINGLE_LOOP -> {
+                controller.shuffleModeEnabled = false
+                controller.repeatMode = Player.REPEAT_MODE_ONE
+            }
+            PlayMode.SHUFFLE -> {
+                controller.shuffleModeEnabled = true
+                controller.repeatMode = Player.REPEAT_MODE_ALL
+            }
         }
     }
 

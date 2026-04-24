@@ -106,7 +106,9 @@ android {
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("release")
+            signingConfigs.findByName("release")?.let { releaseConfig ->
+                signingConfig = releaseConfig
+            }
         }
         release {
             isMinifyEnabled = true
@@ -115,7 +117,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("release")
+            signingConfigs.findByName("release")?.let { releaseConfig ->
+                signingConfig = releaseConfig
+            }
         }
     }
 

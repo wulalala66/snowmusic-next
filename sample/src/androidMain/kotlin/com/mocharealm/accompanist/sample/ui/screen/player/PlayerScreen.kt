@@ -4,12 +4,14 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.MarqueeSpacing
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,6 +33,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -48,6 +51,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +60,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
@@ -67,6 +72,7 @@ import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaItem
 import com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics
 import com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeLine
+import com.mocharealm.accompanist.lyrics.core.model.synced.SyncedLine
 import com.mocharealm.accompanist.lyrics.ui.composable.lyrics.KaraokeLyricsView
 import com.mocharealm.accompanist.sample.Res
 import com.mocharealm.accompanist.sample.domain.model.MusicItem
@@ -165,11 +171,13 @@ fun PlayerScreen(
                         animatedPosition = currentPositionProvider,
                         playerViewModel = playerViewModel,
                         shareViewModel = shareViewModel,
+                        playbackState = uiStateState.value.playbackState,
                         backgroundState = backgroundState,
                         currentMusicItem = currentMusicItem,
                         showTranslation = showTranslation,
                         showPhonetic = showPhonetic,
-                        lyrics = lyrics
+                        lyrics = lyrics,
+                        playMode = uiStateState.value.playMode
                     )
                 }
 
@@ -183,12 +191,14 @@ fun PlayerScreen(
                         listState = listState,
                         animatedPosition = currentPositionProvider,
                         playerViewModel = playerViewModel,
+                        isPlaying = isPlaying,
                         shareViewModel = shareViewModel,
                         backgroundState = backgroundState,
                         currentMusicItem = currentMusicItem,
                         showTranslation = showTranslation,
                         showPhonetic = showPhonetic,
-                        lyrics = lyrics
+                        lyrics = lyrics,
+                        playMode = uiStateState.value.playMode
                     )
                 }
             }
@@ -204,6 +214,20 @@ fun PlayerScreen(
                     onDismissRequest = { /* Optionally handle dismiss */ }
                 )
             }
+            val showPlaylistDialog by remember { derivedStateOf { uiStateState.value.showPlaylistDialog } }
+            if (showPlaylistDialog) {
+                val availableSongs by remember { derivedStateOf { uiStateState.value.availableSongs } }
+                val currentMusicItem by remember { derivedStateOf { uiStateState.value.currentMusicItem } }
+                PlaylistBottomSheet(
+                    items = availableSongs,
+                    currentItem = currentMusicItem,
+                    onItemSelected = {
+                        playerViewModel.onSongSelected(it)
+                        playerViewModel.dismissPlaylistDialog()
+                    },
+                    onDismissRequest = { playerViewModel.dismissPlaylistDialog() }
+                )
+            }
         }
     }
 }
@@ -214,12 +238,16 @@ fun MobilePlayerScreen(
     animatedPosition: ()-> Int,
     playerViewModel: PlayerViewModel,
     shareViewModel: ShareViewModel,
+    playbackState: PlaybackState,
     backgroundState: BackgroundVisualState,
     currentMusicItem: MusicItem?,
     showTranslation: Boolean,
     showPhonetic: Boolean,
-    lyrics: SyncedLyrics?
+    lyrics: SyncedLyrics?,
+    playMode: PlayMode
 ) {
+    var showLyricsPage by rememberSaveable(currentMusicItem?.label) { mutableStateOf(false) }
+
     Column {
         Row(
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -236,19 +264,22 @@ fun MobilePlayerScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                backgroundState.bitmap?.let { bitmap ->
-                    Image(
-                        bitmap,
-                        null,
-                        Modifier
-                            .clip(ContinuousRoundedRectangle(6.dp))
-                            .border(
-                                1.dp,
-                                Color.White.copy(0.2f),
-                                ContinuousRoundedRectangle(6.dp)
-                            )
-                            .size(60.dp)
-                    )
+                if (showLyricsPage) {
+                    backgroundState.bitmap?.let { bitmap ->
+                        Image(
+                            bitmap,
+                            null,
+                            Modifier
+                                .clip(ContinuousRoundedRectangle(6.dp))
+                                .border(
+                                    1.dp,
+                                    Color.White.copy(0.2f),
+                                    ContinuousRoundedRectangle(6.dp)
+                                )
+                                .size(60.dp)
+                                .clickable { showLyricsPage = false }
+                        )
+                    }
                 }
                 PlayerMetadata(
                     currentMusicItem?.label ?: "Unknown Title",
@@ -266,33 +297,115 @@ fun MobilePlayerScreen(
             )
         }
 
-        val cover =
-            (backgroundState.bitmap ?: imageResource(Res.drawable.empty)).asAndroidBitmap()
-        PlayerLyrics(
-            listState = listState,
-            lyrics = lyrics,
-            currentPosition = animatedPosition,
-            showTranslation = showTranslation,
-            showPhonetic = showPhonetic,
-            onSeekTo = { playerViewModel.seekTo(it) },
-            onShare = { line ->
-                lyrics?.let { lyrics ->
-                    playerViewModel.onShareRequested()
-                    val context = ShareContext(
-                        lyrics = lyrics,
-                        initialLine = line,
-                        backgroundState = backgroundState,
-                        title = currentMusicItem?.label ?: "Unknown Title",
-                        artist = currentMusicItem?.testTarget?.split(" [")?.get(0)
-                            ?: "Unknown",
-                        cover = cover
+        val coverImage = backgroundState.bitmap ?: imageResource(Res.drawable.empty)
+        val cover = coverImage.asAndroidBitmap()
+        Crossfade(targetState = showLyricsPage, label = "mobilePlayerPageSwitch") { lyricsPage ->
+            if (lyricsPage) {
+                PlayerLyrics(
+                    listState = listState,
+                    lyrics = lyrics,
+                    currentPosition = animatedPosition,
+                    showTranslation = showTranslation,
+                    showPhonetic = showPhonetic,
+                    onSeekTo = { playerViewModel.seekTo(it) },
+                    onShare = { line ->
+                        lyrics?.let { syncedLyrics ->
+                            playerViewModel.onShareRequested()
+                            val context = ShareContext(
+                                lyrics = syncedLyrics,
+                                initialLine = line,
+                                backgroundState = backgroundState,
+                                title = currentMusicItem?.label ?: "Unknown Title",
+                                artist = currentMusicItem?.testTarget?.split(" [")?.get(0)
+                                    ?: "Unknown",
+                                cover = cover
+                            )
+                            shareViewModel.prepareForSharing(context)
+                            playerViewModel.onShareRequested()
+                        }
+                    },
+                    modifier = Modifier.padding(horizontal = 6.dp)
+                )
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Image(
+                        bitmap = coverImage,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(1f)
+                            .clip(ContinuousRoundedRectangle(14.dp))
+                            .clickable { showLyricsPage = true }
                     )
-                    shareViewModel.prepareForSharing(context)
-                    playerViewModel.onShareRequested()
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(178.dp)
+                    ) {
+                        PlayerLyrics(
+                            listState = listState,
+                            lyrics = lyrics,
+                            currentPosition = animatedPosition,
+                            showTranslation = showTranslation,
+                            showPhonetic = showPhonetic,
+                            onSeekTo = { playerViewModel.seekTo(it) },
+                            onShare = {},
+                            normalFontSize = 24.sp,
+                            accompanimentFontSize = 14.sp,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                    val duration = playbackState.duration.coerceAtLeast(0L)
+                    val position = playbackState.position.coerceIn(0L, duration.takeIf { it > 0L } ?: 0L)
+                    val sliderValue = if (duration <= 0L) 0f else position.toFloat() / duration.toFloat()
+                    androidx.compose.material3.Slider(
+                        value = sliderValue,
+                        onValueChange = { ratio ->
+                            if (duration > 0L) {
+                                playerViewModel.seekTo((duration * ratio).toInt())
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = formatDuration(position),
+                            color = Color.White.copy(alpha = 0.68f),
+                            fontSize = 16.sp
+                        )
+                        Text(
+                            text = formatDuration(duration),
+                            color = Color.White.copy(alpha = 0.68f),
+                            fontSize = 16.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        PlaybackTransportControls(
+                            playMode = playMode,
+                            isPlaying = playbackState.isPlaying,
+                            onCyclePlayMode = { playerViewModel.cyclePlayMode() },
+                            onPrevious = { playerViewModel.playPrevious() },
+                            onTogglePlayPause = { playerViewModel.togglePlayPause() },
+                            onNext = { playerViewModel.playNext() },
+                            onOpenPlaylist = { playerViewModel.showPlaylistDialog() }
+                        )
+                    }
                 }
-            },
-            modifier = Modifier.padding(horizontal = 6.dp)
-        )
+            }
+        }
     }
 }
 
@@ -301,12 +414,14 @@ fun PadPlayerScreen(
     listState: LazyListState,
     animatedPosition: ()-> Int,
     playerViewModel: PlayerViewModel,
+    isPlaying: Boolean,
     shareViewModel: ShareViewModel,
     backgroundState: BackgroundVisualState,
     currentMusicItem: MusicItem?,
     showTranslation: Boolean,
     showPhonetic: Boolean,
-    lyrics: SyncedLyrics?
+    lyrics: SyncedLyrics?,
+    playMode: PlayMode
 ) {
     Row(
         Modifier
@@ -365,6 +480,25 @@ fun PadPlayerScreen(
                     showPhonetic = showPhonetic,
                     onToggleTranslation = { playerViewModel.toggleTranslation() },
                     onTogglePhonetic = { playerViewModel.togglePhonetic() }
+                )
+            }
+            Spacer(
+                Modifier
+                    .fillMaxWidth()
+                    .height(18.dp)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                PlaybackTransportControls(
+                    playMode = playMode,
+                    isPlaying = isPlaying,
+                    onCyclePlayMode = { playerViewModel.cyclePlayMode() },
+                    onPrevious = { playerViewModel.playPrevious() },
+                    onTogglePlayPause = { playerViewModel.togglePlayPause() },
+                    onNext = { playerViewModel.playNext() },
+                    onOpenPlaylist = { playerViewModel.showPlaylistDialog() }
                 )
             }
 
@@ -671,6 +805,320 @@ fun PlayerControls(
 }
 
 @Composable
+private fun PlaybackTransportControls(
+    playMode: PlayMode,
+    isPlaying: Boolean,
+    onCyclePlayMode: () -> Unit,
+    onPrevious: () -> Unit,
+    onTogglePlayPause: () -> Unit,
+    onNext: () -> Unit,
+    onOpenPlaylist: () -> Unit
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(18.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        PlaybackChip(
+            glyph = when (playMode) {
+                PlayMode.SEQUENTIAL -> TransportGlyph.MODE_SEQUENCE
+                PlayMode.SINGLE_LOOP -> TransportGlyph.MODE_SINGLE
+                PlayMode.SHUFFLE -> TransportGlyph.MODE_SHUFFLE
+            },
+            onClick = onCyclePlayMode
+        )
+        PlaybackChip(
+            glyph = TransportGlyph.PREVIOUS,
+            onClick = onPrevious
+        )
+        PlaybackChip(
+            glyph = if (isPlaying) TransportGlyph.PAUSE else TransportGlyph.PLAY,
+            onClick = onTogglePlayPause
+        )
+        PlaybackChip(
+            glyph = TransportGlyph.NEXT,
+            onClick = onNext
+        )
+        PlaybackChip(
+            glyph = TransportGlyph.PLAYLIST,
+            onClick = onOpenPlaylist
+        )
+    }
+}
+
+private enum class TransportGlyph {
+    MODE_SEQUENCE, MODE_SINGLE, MODE_SHUFFLE, PREVIOUS, PLAY, PAUSE, NEXT, PLAYLIST
+}
+
+@Composable
+private fun PlaybackChip(
+    glyph: TransportGlyph,
+    onClick: () -> Unit
+) {
+    val isCenter = glyph == TransportGlyph.PLAY || glyph == TransportGlyph.PAUSE
+    val isSideSmall = glyph == TransportGlyph.MODE_SEQUENCE ||
+        glyph == TransportGlyph.MODE_SINGLE ||
+        glyph == TransportGlyph.MODE_SHUFFLE ||
+        glyph == TransportGlyph.PLAYLIST
+    val chipSize = when {
+        isCenter -> 64.dp
+        isSideSmall -> 26.dp
+        else -> 36.dp
+    }
+    Box(
+        Modifier
+            .clip(CircleShape)
+            .size(chipSize)
+            .background(
+                if (isCenter) Color.White.copy(alpha = 0.95f) else Color.Transparent
+            )
+            .clickable(onClick = onClick)
+            .padding(if (isCenter) 14.dp else 0.dp),
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val iconColor = if (isCenter) Color(0xFF5FA89A) else Color.White.copy(alpha = 0.82f)
+            val w = size.width
+            val h = size.height
+
+            when (glyph) {
+                TransportGlyph.MODE_SEQUENCE -> {
+                    drawLine(
+                        color = iconColor,
+                        start = androidx.compose.ui.geometry.Offset(w * 0.10f, h * 0.30f),
+                        end = androidx.compose.ui.geometry.Offset(w * 0.80f, h * 0.30f),
+                        strokeWidth = w * 0.12f
+                    )
+                    drawLine(
+                        color = iconColor,
+                        start = androidx.compose.ui.geometry.Offset(w * 0.20f, h * 0.70f),
+                        end = androidx.compose.ui.geometry.Offset(w * 0.90f, h * 0.70f),
+                        strokeWidth = w * 0.12f
+                    )
+                    val topArrow = Path().apply {
+                        moveTo(w * 0.80f, h * 0.18f)
+                        lineTo(w * 1.00f, h * 0.30f)
+                        lineTo(w * 0.80f, h * 0.42f)
+                        close()
+                    }
+                    val bottomArrow = Path().apply {
+                        moveTo(w * 0.20f, h * 0.58f)
+                        lineTo(0f, h * 0.70f)
+                        lineTo(w * 0.20f, h * 0.82f)
+                        close()
+                    }
+                    drawPath(topArrow, iconColor)
+                    drawPath(bottomArrow, iconColor)
+                }
+
+                TransportGlyph.MODE_SINGLE -> {
+                    drawLine(
+                        color = iconColor,
+                        start = androidx.compose.ui.geometry.Offset(w * 0.10f, h * 0.32f),
+                        end = androidx.compose.ui.geometry.Offset(w * 0.80f, h * 0.32f),
+                        strokeWidth = w * 0.12f
+                    )
+                    drawLine(
+                        color = iconColor,
+                        start = androidx.compose.ui.geometry.Offset(w * 0.20f, h * 0.72f),
+                        end = androidx.compose.ui.geometry.Offset(w * 0.70f, h * 0.72f),
+                        strokeWidth = w * 0.12f
+                    )
+                    val topArrow = Path().apply {
+                        moveTo(w * 0.80f, h * 0.20f)
+                        lineTo(w * 1.00f, h * 0.32f)
+                        lineTo(w * 0.80f, h * 0.44f)
+                        close()
+                    }
+                    drawPath(topArrow, iconColor)
+                    drawRoundRect(
+                        color = iconColor,
+                        topLeft = androidx.compose.ui.geometry.Offset(w * 0.78f, h * 0.52f),
+                        size = androidx.compose.ui.geometry.Size(w * 0.12f, h * 0.34f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.05f, w * 0.05f)
+                    )
+                }
+
+                TransportGlyph.MODE_SHUFFLE -> {
+                    drawLine(
+                        color = iconColor,
+                        start = androidx.compose.ui.geometry.Offset(w * 0.08f, h * 0.18f),
+                        end = androidx.compose.ui.geometry.Offset(w * 0.92f, h * 0.82f),
+                        strokeWidth = w * 0.12f
+                    )
+                    drawLine(
+                        color = iconColor,
+                        start = androidx.compose.ui.geometry.Offset(w * 0.08f, h * 0.82f),
+                        end = androidx.compose.ui.geometry.Offset(w * 0.92f, h * 0.18f),
+                        strokeWidth = w * 0.12f
+                    )
+                }
+
+                TransportGlyph.PREVIOUS -> {
+                    val barWidth = w * 0.14f
+                    drawRoundRect(
+                        color = iconColor,
+                        topLeft = androidx.compose.ui.geometry.Offset(x = w * 0.06f, y = h * 0.16f),
+                        size = androidx.compose.ui.geometry.Size(width = barWidth, height = h * 0.68f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(barWidth / 2, barWidth / 2)
+                    )
+                    val triangle = Path().apply {
+                        moveTo(w * 0.86f, h * 0.16f)
+                        lineTo(w * 0.86f, h * 0.84f)
+                        lineTo(w * 0.30f, h * 0.50f)
+                        close()
+                    }
+                    drawPath(path = triangle, color = iconColor)
+                }
+
+                TransportGlyph.NEXT -> {
+                    val barWidth = w * 0.14f
+                    drawRoundRect(
+                        color = iconColor,
+                        topLeft = androidx.compose.ui.geometry.Offset(x = w * 0.80f - barWidth, y = h * 0.16f),
+                        size = androidx.compose.ui.geometry.Size(width = barWidth, height = h * 0.68f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(barWidth / 2, barWidth / 2)
+                    )
+                    val triangle = Path().apply {
+                        moveTo(w * 0.14f, h * 0.16f)
+                        lineTo(w * 0.14f, h * 0.84f)
+                        lineTo(w * 0.70f, h * 0.50f)
+                        close()
+                    }
+                    drawPath(path = triangle, color = iconColor)
+                }
+
+                TransportGlyph.PLAY -> {
+                    val triangle = Path().apply {
+                        moveTo(w * 0.28f, h * 0.16f)
+                        lineTo(w * 0.28f, h * 0.84f)
+                        lineTo(w * 0.82f, h * 0.50f)
+                        close()
+                    }
+                    drawPath(path = triangle, color = iconColor)
+                }
+
+                TransportGlyph.PAUSE -> {
+                    val pauseWidth = w * 0.18f
+                    val gap = w * 0.12f
+                    val leftX = (w - (pauseWidth * 2 + gap)) / 2f
+                    drawRoundRect(
+                        color = iconColor,
+                        topLeft = androidx.compose.ui.geometry.Offset(leftX, h * 0.18f),
+                        size = androidx.compose.ui.geometry.Size(width = pauseWidth, height = h * 0.64f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(pauseWidth / 2, pauseWidth / 2)
+                    )
+                    drawRoundRect(
+                        color = iconColor,
+                        topLeft = androidx.compose.ui.geometry.Offset(leftX + pauseWidth + gap, h * 0.18f),
+                        size = androidx.compose.ui.geometry.Size(width = pauseWidth, height = h * 0.64f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(pauseWidth / 2, pauseWidth / 2)
+                    )
+                }
+
+                TransportGlyph.PLAYLIST -> {
+                    drawRoundRect(
+                        color = iconColor,
+                        topLeft = androidx.compose.ui.geometry.Offset(x = w * 0.12f, y = h * 0.18f),
+                        size = androidx.compose.ui.geometry.Size(width = w * 0.62f, height = h * 0.10f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.05f, w * 0.05f)
+                    )
+                    drawRoundRect(
+                        color = iconColor,
+                        topLeft = androidx.compose.ui.geometry.Offset(x = w * 0.12f, y = h * 0.45f),
+                        size = androidx.compose.ui.geometry.Size(width = w * 0.62f, height = h * 0.10f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.05f, w * 0.05f)
+                    )
+                    drawRoundRect(
+                        color = iconColor,
+                        topLeft = androidx.compose.ui.geometry.Offset(x = w * 0.12f, y = h * 0.72f),
+                        size = androidx.compose.ui.geometry.Size(width = w * 0.62f, height = h * 0.10f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.05f, w * 0.05f)
+                    )
+                    drawCircle(
+                        color = iconColor,
+                        radius = w * 0.06f,
+                        center = androidx.compose.ui.geometry.Offset(w * 0.84f, h * 0.23f)
+                    )
+                    drawCircle(
+                        color = iconColor,
+                        radius = w * 0.06f,
+                        center = androidx.compose.ui.geometry.Offset(w * 0.84f, h * 0.50f)
+                    )
+                    drawCircle(
+                        color = iconColor,
+                        radius = w * 0.06f,
+                        center = androidx.compose.ui.geometry.Offset(w * 0.84f, h * 0.77f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlaylistBottomSheet(
+    items: List<MusicItem>,
+    currentItem: MusicItem?,
+    onItemSelected: (MusicItem) -> Unit,
+    onDismissRequest: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismissRequest,
+        title = { Text("Choose a song to play") },
+        text = {
+            LazyColumn {
+                itemsIndexed(items) { index, item ->
+                    val isCurrent = currentItem?.label == item.label &&
+                        currentItem.testTarget == item.testTarget
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(ContinuousRoundedRectangle(8.dp))
+                            .background(if (isCurrent) Color.Black.copy(alpha = 0.06f) else Color.Transparent)
+                            .clickable { onItemSelected(item) }
+                            .padding(vertical = 12.dp, horizontal = 8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                item.label,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (isCurrent) {
+                                Text(
+                                    "Playing",
+                                    fontSize = 12.sp,
+                                    color = Color.Black.copy(alpha = 0.5f)
+                                )
+                            }
+                        }
+                        Text(item.testTarget, fontSize = 14.sp)
+                    }
+                    if (index < items.lastIndex) {
+                        Spacer(Modifier.height(2.dp))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Text(
+                text = "Confirm",
+                modifier = Modifier.clickable { onDismissRequest() }
+            )
+        }
+    )
+}
+
+private fun formatDuration(ms: Long): String {
+    val totalSec = (ms / 1000).coerceAtLeast(0)
+    val minutes = totalSec / 60
+    val seconds = totalSec % 60
+    return "%02d:%02d".format(minutes, seconds)
+}
+
+@Composable
 fun PlayerLyrics(
     listState: LazyListState,
     lyrics: SyncedLyrics?,
@@ -679,6 +1127,8 @@ fun PlayerLyrics(
     showPhonetic: Boolean,
     onSeekTo: (Int) -> Unit,
     onShare: (KaraokeLine) -> Unit,
+    normalFontSize: androidx.compose.ui.unit.TextUnit = 34.sp,
+    accompanimentFontSize: androidx.compose.ui.unit.TextUnit = 20.sp,
     modifier: Modifier = Modifier
 ) {
     if (lyrics == null) return
@@ -687,7 +1137,7 @@ fun PlayerLyrics(
     val sf = SFPro()
     val normalStyle = remember(currentTextStyle) {
         currentTextStyle.copy(
-            fontSize = 34.sp,
+            fontSize = normalFontSize,
             fontFamily = sf,
             fontWeight = FontWeight.Bold,
             textMotion = TextMotion.Animated,
@@ -696,7 +1146,7 @@ fun PlayerLyrics(
     
     val accompanimentStyle = remember(currentTextStyle) {
         currentTextStyle.copy(
-            fontSize = 20.sp,
+            fontSize = accompanimentFontSize,
             fontFamily = sf,
             fontWeight = FontWeight.Bold,
             textMotion = TextMotion.Animated,
